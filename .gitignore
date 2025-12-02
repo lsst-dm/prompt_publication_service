@@ -10,6 +10,7 @@ config.log
 *Lib.py
 
 .env
+*.sqlite
 
 # Built by sconsUtils
 version.py
