@@ -1,3 +1,27 @@
 # Pytest configuration required to prevent pytest from looking for
 # configurations in parent directories. Can be empty.
 [tool.pytest.ini_options]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+exclude = [
+    "doc/"
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lsst"]
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 79
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.format]
+docstring-code-format = true
+# Formatter does not know about indenting.
+docstring-code-line-length = 69
+
+[tool.lsst_versions]
+write_to = "python/lsst/prompt_publication_service/version.py"
