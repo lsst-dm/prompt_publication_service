@@ -9,6 +9,8 @@ config.log
 *_wrap.cc
 *Lib.py
 
+.env
+
 # Built by sconsUtils
 version.py
 bin/
