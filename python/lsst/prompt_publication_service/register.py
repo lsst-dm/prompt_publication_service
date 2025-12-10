@@ -20,12 +20,50 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+from uuid import UUID
 
 import astropy.time
+import logging
+import pydantic
 
 from lsst.daf.butler import Butler, DataCoordinate, DatasetRef, DimensionRecord, Timespan
+from lsst.resources import ResourcePath
+
 from .database import Database
 from .schema import Dataset, Visit, DatasetOrigin, DatasetLocationStatus
+
+_LOG = logging.getLogger(__name__)
+
+
+class DatasetBatch(pydantic.BaseModel):
+    """List of datasets contained in JSON file that will be consumed by the
+    Prompt Publication Service.
+    """
+
+    batch_id: UUID
+    """Identifier for this batch of datasets."""
+    datasets: list[UUID]
+    """List of dataset IDs that were ingested into the Butler database."""
+
+
+async def register_dataset_batch_file(
+    db: Database, origin: DatasetOrigin, source_butler: Butler, batch_file: ResourcePath
+) -> None:
+    datasets = await asyncio.to_thread(_load_batch_file, source_butler, batch_file)
+    await register_embargo_datasets(db, origin, source_butler, datasets)
+
+
+def _load_batch_file(source_butler: Butler, batch_file: ResourcePath) -> list[DatasetRef]:
+    json = batch_file.read()
+    batch = DatasetBatch.model_validate_json(json)
+
+    refs = source_butler.get_many_datasets(batch.datasets)
+    missing = set(batch.datasets) - set(ref.id for ref in refs)
+    if missing:
+        _LOG.warning(
+            f"Dataset batch {batch.batch_id} included datasets not found in the Butler repository: {missing}"
+        )
+    return refs
 
 
 async def register_embargo_datasets(
