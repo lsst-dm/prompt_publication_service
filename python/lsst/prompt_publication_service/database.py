@@ -1,6 +1,7 @@
 from sqlalchemy import Insert
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from .schema import Base
 
 
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -20,6 +21,10 @@ class Database(AbstractAsyncContextManager):
     async def session(self) -> AsyncIterator[AsyncSession]:
         async with self._session_maker() as session:
             yield session
+
+    async def initialize_tables(self) -> None:
+        async with self._engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
 
     def insert_if_not_exists(self, table: type[DeclarativeBase]) -> Insert:
         """Returns a SQLAlchemy Insert object for the given table configured

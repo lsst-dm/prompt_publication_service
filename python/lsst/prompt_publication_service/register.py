@@ -20,6 +20,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+import datetime
+from typing import cast
 from uuid import UUID
 
 import astropy.time
@@ -47,9 +49,9 @@ class DatasetBatch(pydantic.BaseModel):
 
 
 async def register_dataset_batch_file(
-    db: Database, origin: DatasetOrigin, source_butler: Butler, batch_file: ResourcePath
+    db: Database, origin: DatasetOrigin, source_butler: Butler, batch_file: ResourcePath | str
 ) -> None:
-    datasets = await asyncio.to_thread(_load_batch_file, source_butler, batch_file)
+    datasets = await asyncio.to_thread(_load_batch_file, source_butler, ResourcePath(batch_file))
     await register_embargo_datasets(db, origin, source_butler, datasets)
 
 
@@ -105,7 +107,9 @@ def _convert_visit_record_to_visit_row(record: DimensionRecord) -> dict:
         time = None
     else:
         assert isinstance(timespan.end, astropy.time.Time)
-        time = timespan.end.to_datetime()
+
+        utc_time = cast(astropy.time.Time, timespan.end.utc)
+        time = utc_time.to_datetime(datetime.UTC)
 
     return {"instrument": record.dataId["instrument"], "visit": record.dataId["visit"], "time": time}
 
