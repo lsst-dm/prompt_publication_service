@@ -140,3 +140,16 @@ class Dataset(Base):
             )
         ),
     )
+
+
+class UnknownDataset(Base):
+    """Stores a list of datasets that we were instructed to register in the
+    database, but which were not available in the original repository when we
+    attempted to look them up.
+    """
+
+    __tablename__ = "unknown_dataset"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    origin: Mapped[DatasetOrigin] = mapped_column(_EnumColumn(DatasetOrigin))
+    error: Mapped[str]

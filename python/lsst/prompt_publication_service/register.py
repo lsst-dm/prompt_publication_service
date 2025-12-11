@@ -32,14 +32,14 @@ from lsst.daf.butler import Butler, DataCoordinate, DatasetRef, DimensionRecord,
 from lsst.resources import ResourcePath
 
 from .database import Database
-from .schema import Dataset, Visit, DatasetOrigin, DatasetLocationStatus
+from .schema import Dataset, Visit, DatasetOrigin, DatasetLocationStatus, UnknownDataset
 
 _LOG = logging.getLogger(__name__)
 
 
 class DatasetBatch(pydantic.BaseModel):
-    """List of datasets contained in JSON file that will be consumed by the
-    Prompt Publication Service.
+    """List of embargo datasets from Prompt Processing Butler Writer that
+    should be registered in the database.
     """
 
     batch_id: UUID
@@ -51,25 +51,28 @@ class DatasetBatch(pydantic.BaseModel):
 async def register_dataset_batch_file(
     db: Database, origin: DatasetOrigin, source_butler: Butler, batch_file: ResourcePath | str
 ) -> None:
-    datasets = await asyncio.to_thread(_load_batch_file, source_butler, ResourcePath(batch_file))
-    await register_embargo_datasets(db, origin, source_butler, datasets)
-
-
-def _load_batch_file(source_butler: Butler, batch_file: ResourcePath) -> list[DatasetRef]:
-    json = batch_file.read()
+    json = await asyncio.to_thread(lambda: ResourcePath(batch_file).read())
     batch = DatasetBatch.model_validate_json(json)
-
-    refs = source_butler.get_many_datasets(batch.datasets)
-    missing = set(batch.datasets) - set(ref.id for ref in refs)
-    if missing:
+    refs = await asyncio.to_thread(source_butler.get_many_datasets, batch.datasets)
+    missing = None
+    missing_ids = set(batch.datasets) - set(ref.id for ref in refs)
+    if missing_ids:
         _LOG.warning(
-            f"Dataset batch {batch.batch_id} included datasets not found in the Butler repository: {missing}"
+            f"Dataset batch {batch.batch_id}"
+            "included datasets not found in the Butler repository: {missing_ids}"
         )
-    return refs
+        error_message = f"Dataset not found in Butler, from batch '{batch.batch_id}'"
+        missing = {id: error_message for id in missing_ids}
+
+    await register_embargo_datasets(db, origin, source_butler, refs, missing)
 
 
 async def register_embargo_datasets(
-    db: Database, origin: DatasetOrigin, source_butler: Butler, datasets: list[DatasetRef]
+    db: Database,
+    origin: DatasetOrigin,
+    source_butler: Butler,
+    datasets: list[DatasetRef],
+    missing: dict[UUID, str] | None = None,
 ) -> None:
     if len(datasets) == 0:
         return
@@ -80,7 +83,11 @@ async def register_embargo_datasets(
     async with db.session() as session:
         if visit_rows:
             await session.execute(db.insert_if_not_exists(Visit), visit_rows)
-        await session.execute(db.insert_if_not_exists(Dataset), dataset_rows)
+        if missing:
+            unknown_rows = [{"id": id, "origin": origin, "error": error} for id, error in missing.items()]
+            await session.execute(db.insert_if_not_exists(UnknownDataset), unknown_rows)
+        if dataset_rows:
+            await session.execute(db.insert_if_not_exists(Dataset), dataset_rows)
         await session.commit()
 
 

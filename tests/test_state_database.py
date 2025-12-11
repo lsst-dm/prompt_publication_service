@@ -21,6 +21,7 @@
 
 from pathlib import Path
 from sqlalchemy import select
+from uuid import UUID
 import datetime
 import json
 import tempfile
@@ -29,7 +30,13 @@ import unittest
 from lsst.daf.butler import Butler, DatasetType
 from lsst.prompt_publication_service.database import Database
 from lsst.prompt_publication_service.register import register_dataset_batch_file
-from lsst.prompt_publication_service.schema import DatasetOrigin, Dataset, Visit, DatasetLocationStatus
+from lsst.prompt_publication_service.schema import (
+    DatasetOrigin,
+    Dataset,
+    Visit,
+    DatasetLocationStatus,
+    UnknownDataset,
+)
 
 
 class TestRegistration(unittest.IsolatedAsyncioTestCase):
@@ -73,13 +80,26 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
         batch_data = {
             "batch_id": "59643df0-e0ed-445c-9fbe-417b526eab6b",
-            "datasets": [str(ref.id) for ref in [pvi1, pvi2, rti]],
+            "datasets": [
+                *(str(ref.id) for ref in [pvi1, pvi2, rti]),
+                # An arbitrary dataset ID that is not present in the Butler
+                # database.
+                "f3b0055f-7375-4154-b1e4-922656c0af44",
+            ],
         }
         fh = self.enterContext(tempfile.NamedTemporaryFile("w", delete_on_close=False))
         fh.write(json.dumps(batch_data))
         fh.close()
         batch_file = fh.name
-        await register_dataset_batch_file(self.db, DatasetOrigin.PROMPT_PROCESSING, self.butler, batch_file)
+
+        async def register_datasets() -> None:
+            with self.assertLogs("lsst.prompt_publication_service.register", level="WARNING") as logged:
+                await register_dataset_batch_file(
+                    self.db, DatasetOrigin.PROMPT_PROCESSING, self.butler, batch_file
+                )
+            self.assertEqual(len(logged.output), 1)
+            self.assertIn("not found", logged.output[0])
+            self.assertIn("f3b0055f-7375-4154-b1e4-922656c0af44", logged.output[0])
 
         async def check_datasets() -> None:
             async with self.db.session() as session:
@@ -123,6 +143,14 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(datasets[2].google_prod_status, DatasetLocationStatus.NEVER_PRESENT)
             self.assertIsNone(datasets[2].unembargo_time)
 
+            async with self.db.session() as session:
+                unknowns = list(await session.scalars(select(UnknownDataset)))
+            self.assertEqual(len(unknowns), 1)
+            self.assertEqual(unknowns[0].id, UUID("f3b0055f-7375-4154-b1e4-922656c0af44"))
+            self.assertEqual(unknowns[0].origin, DatasetOrigin.PROMPT_PROCESSING)
+            self.assertIn(batch_data["batch_id"], unknowns[0].error)
+
+        await register_datasets()
         await check_datasets()
 
         async with self.db.session() as session:
@@ -140,7 +168,7 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(visits[1].time, datetime.datetime(2025, 12, 3, 8, 0, 27, 811000))
 
         # Dataset registration is idempotent.
-        await register_dataset_batch_file(self.db, DatasetOrigin.PROMPT_PROCESSING, self.butler, batch_file)
+        await register_datasets()
         await check_datasets()
         # If any state has changed, re-registering a dataset should not change
         # it.
@@ -149,7 +177,7 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             assert dataset is not None
             dataset.prompt_prep_status = DatasetLocationStatus.PRESENT
             await session.commit()
-        await register_dataset_batch_file(self.db, DatasetOrigin.PROMPT_PROCESSING, self.butler, batch_file)
+        await register_datasets()
         async with self.db.session() as session:
             dataset = await session.scalar(select(Dataset).where(Dataset.id == pvi1.id))
             assert dataset is not None
