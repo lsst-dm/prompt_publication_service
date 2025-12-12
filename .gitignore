@@ -9,6 +9,9 @@ config.log
 *_wrap.cc
 *Lib.py
 
+.env
+*.sqlite
+
 # Built by sconsUtils
 version.py
 bin/
