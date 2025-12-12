@@ -82,40 +82,69 @@ class _EnumColumn[T: IntEnum](types.TypeDecorator):
 
 
 class Base(DeclarativeBase):
+    """SQLAlchemy ORM root class."""
+
     pass
 
 
 class Visit(Base):
+    """Table tracking survey visit information."""
+
     __tablename__ = "visit"
+
     visit: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
+    """Visit ID from the Butler."""
     instrument: Mapped[str] = mapped_column(primary_key=True)
+    """Instrument name from the Butler."""
     time: Mapped[datetime | None]
+    """Date and time when the visit ended."""
 
 
 class Dataset(Base):
+    """Table tracking the datasets that are available for unembargo and
+    publication.
+    """
+
     __tablename__ = "dataset"
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
+    """Butler Dataset UUID."""
     origin: Mapped[DatasetOrigin] = mapped_column(_EnumColumn(DatasetOrigin))
+    """Which system/process generated this data."""
     dataset_type: Mapped[str]
+    """Name of Butler DatasetType."""
     instrument: Mapped[str] = mapped_column(nullable=True)
+    """Instrument name from the Butler."""
     visit: Mapped[int] = mapped_column(types.BigInteger, nullable=True)
+    """Visit ID from the Butler."""
 
     embargo_status: Mapped[DatasetLocationStatus] = mapped_column(_EnumColumn(DatasetLocationStatus))
+    """Status of this dataset in the ``embargo`` Butler repository."""
     prompt_prep_status: Mapped[DatasetLocationStatus] = mapped_column(
         _EnumColumn(DatasetLocationStatus), default=DatasetLocationStatus.NEVER_PRESENT
     )
+    """Status of this dataset in the ``prompt_prep`` Butler repository."""
     repo_main_status: Mapped[DatasetLocationStatus] = mapped_column(
         _EnumColumn(DatasetLocationStatus), default=DatasetLocationStatus.NEVER_PRESENT
     )
+    """Status of this dataset in the ``/repo/main`` Butler repository."""
     google_int_status: Mapped[DatasetLocationStatus] = mapped_column(
         _EnumColumn(DatasetLocationStatus), default=DatasetLocationStatus.NEVER_PRESENT
     )
+    """Status of this dataset in the ``prompt`` Butler repository on the Google
+    RSP integration testing environment.
+    """
     google_prod_status: Mapped[DatasetLocationStatus] = mapped_column(
         _EnumColumn(DatasetLocationStatus), default=DatasetLocationStatus.NEVER_PRESENT
     )
+    """Status of this dataset in the ``prompt`` Butler repository on the Google
+    RSP production environment.
+    """
 
     unembargo_time: Mapped[datetime | None]
+    """Time when the dataset was copied out of embargo into the prompt_prep
+    Butler repository.
+    """
 
     __table_args__ = (
         ForeignKeyConstraint(["visit", "instrument"], ["visit.visit", "visit.instrument"]),
@@ -143,13 +172,18 @@ class Dataset(Base):
 
 
 class UnknownDataset(Base):
-    """Stores a list of datasets that we were instructed to register in the
-    database, but which were not available in the original repository when we
-    attempted to look them up.
+    """Table storing a list of datasets that we were instructed to register in
+    the database, but which were not available in the original repository when
+    we attempted to look them up.
     """
 
     __tablename__ = "unknown_dataset"
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
+    """Butler Dataset UUID."""
     origin: Mapped[DatasetOrigin] = mapped_column(_EnumColumn(DatasetOrigin))
+    """Which system/process generated this data."""
     error: Mapped[str]
+    """Human readable string describing why this dataset is being tracked in
+    this table.
+    """

@@ -39,6 +39,9 @@ from ..schema import DatasetOrigin
 def register_embargo_datasets_from_collections(
     butler_repo: str, database_uri: str, collections: tuple[str, ...], types: str
 ) -> None:
+    """Script that adds datasets to the state database from a given collection
+    in a Butler repository.
+    """
     dataset_types = re.split(r"[\s,]+", types)
     with Butler.from_config(butler_repo) as butler:
         print("Searching for datasets")

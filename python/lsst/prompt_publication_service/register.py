@@ -51,6 +51,24 @@ class DatasetBatch(pydantic.BaseModel):
 async def register_dataset_batch_file(
     db: Database, origin: DatasetOrigin, source_butler: Butler, batch_file: ResourcePath | str
 ) -> None:
+    """Add a list of datasets to the state database from a dataset batch file.
+    This function is idempotent and can safely be called on the same batch file
+    more than once.  Datasets are assumed to be present in the embargo
+    repository, but not any of the other repositories.
+
+    Parameters
+    ----------
+    db
+        Database connection to the state database.
+    origin
+        Enum value describing which system/process these datasets originated
+        from.
+    source_butler
+        Butler instance for the repository the datasets are currently located
+        (normally the 'embargo' repository.)
+    batch_file
+        Path to the JSON file containing the list of datasets to be loaded.
+    """
     json = await asyncio.to_thread(lambda: ResourcePath(batch_file).read())
     batch = DatasetBatch.model_validate_json(json)
     refs = await asyncio.to_thread(source_butler.get_many_datasets, batch.datasets)
@@ -74,6 +92,29 @@ async def register_embargo_datasets(
     datasets: list[DatasetRef],
     missing: dict[UUID, str] | None = None,
 ) -> None:
+    """Add a list of datasets to the state database.  This function is
+    idempotent and can safely be called on the same datasets more than once.
+    Datasets are assumed to be present in the embargo repository, but not any
+    of the other repositories.
+
+    Parameters
+    ----------
+    db
+        Database connection to the state database.
+    origin
+        Enum value describing which system/process these datasets originated
+        from.
+    source_butler
+        Butler instance for the repository the datasets are currently located
+        (normally the 'embargo' repository.)
+    datasets
+        List of Butler `DatasetRef` instances for the datasets to be registered
+        in the DB.
+    missing, optional
+        Mapping from dataset UUID to a human-readable string describing
+        a dataset that you want to register, but could not be located.
+        These dataset UUIDs will be tracked in the `UnknownDataset` table.
+    """
     if len(datasets) == 0:
         return
 
@@ -92,6 +133,9 @@ async def register_embargo_datasets(
 
 
 async def _find_matching_visits(source_butler: Butler, datasets: list[DatasetRef]) -> list[DimensionRecord]:
+    """Look up the Butler 'visit' dimension records associated with the given
+    datasets.
+    """
     visits: set[DataCoordinate] = set()
     for ref in datasets:
         if "visit" in ref.datasetType.dimensions:

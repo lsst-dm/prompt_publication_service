@@ -9,6 +9,8 @@ from typing import Any, AsyncIterator
 
 
 class Database(AbstractAsyncContextManager):
+    """Wrapper around a SQLAlchemy database connection."""
+
     def __init__(self, database_uri: str) -> None:
         self._engine = create_async_engine(database_uri)
         self._session_maker = async_sessionmaker(self._engine)
@@ -19,10 +21,14 @@ class Database(AbstractAsyncContextManager):
 
     @asynccontextmanager
     async def session(self) -> AsyncIterator[AsyncSession]:
+        """Async context manager that creates a SQLAlchemy AsyncSession."""
         async with self._session_maker() as session:
             yield session
 
     async def initialize_tables(self) -> None:
+        """Starting from an empty database, create the tables and indexes
+        used by this service to track state.
+        """
         async with self._engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
 
@@ -32,6 +38,16 @@ class Database(AbstractAsyncContextManager):
         existing primary keys or unique indexes.
 
         This makes the insert idempotent.
+
+        Parameters
+        ----------
+        table
+            One of the SQLAlchemy ORM table definitions from ``schema.py``.
+
+        Returns
+        -------
+        insert
+            SQLAlchemy Insert object.
         """
         dialect = self._engine.dialect.name
         if dialect == "postgresql":
