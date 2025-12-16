@@ -47,6 +47,9 @@ class DatasetTypeConfiguration:
     def __init__(self, config: dict[str, DatasetTypeConfigurationItem]):
         self._config = dict(config)
 
+    def subset(self, dataset_types: list[str]) -> DatasetTypeConfiguration:
+        return DatasetTypeConfiguration({dt: self._config[dt] for dt in dataset_types})
+
     def group_by[_T](
         self, key_func: Callable[[DatasetTypeConfigurationItem], _T]
     ) -> list[ConfigurationGroup[_T]]:
