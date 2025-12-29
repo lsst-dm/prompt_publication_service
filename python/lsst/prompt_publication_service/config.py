@@ -19,6 +19,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 from collections import defaultdict
 from typing import Callable, Literal, NamedTuple
 
@@ -46,6 +48,9 @@ class ConfigurationGroup[_T](NamedTuple):
 class DatasetTypeConfiguration:
     def __init__(self, config: dict[str, DatasetTypeConfigurationItem]):
         self._config = dict(config)
+
+    def subset(self, dataset_types: list[str]) -> DatasetTypeConfiguration:
+        return DatasetTypeConfiguration({dt: self._config[dt] for dt in dataset_types})
 
     def group_by[_T](
         self, key_func: Callable[[DatasetTypeConfigurationItem], _T]
