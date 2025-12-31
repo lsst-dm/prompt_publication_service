@@ -75,7 +75,7 @@ async def register_dataset_batch_file(
     if missing_ids:
         _LOG.warning(
             f"Dataset batch {batch.batch_id}"
-            "included datasets not found in the Butler repository: {missing_ids}"
+            f" included datasets not found in the Butler repository: {missing_ids}"
         )
         error_message = f"Dataset not found in Butler, from batch '{batch.batch_id}'"
         missing = {id: error_message for id in missing_ids}
