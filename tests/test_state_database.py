@@ -19,7 +19,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from pathlib import Path
 from sqlalchemy import select
 from uuid import UUID
 import datetime
@@ -27,8 +26,7 @@ import json
 import tempfile
 import unittest
 
-from lsst.daf.butler import Butler, DatasetType
-from lsst.prompt_publication_service.database import Database
+from lsst.daf.butler import DatasetType
 from lsst.prompt_publication_service.register import register_dataset_batch_file
 from lsst.prompt_publication_service.schema import (
     DatasetOrigin,
@@ -37,14 +35,17 @@ from lsst.prompt_publication_service.schema import (
     DatasetLocationStatus,
     UnknownDataset,
 )
+from lsst.prompt_publication_service.test_utils import (
+    create_butler_repo,
+    create_publication_state_db,
+    get_path_to_test_data_file,
+)
 
 
 class TestRegistration(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
-        self.temp_dir = self.enterContext(tempfile.TemporaryDirectory())
-        Butler.makeRepo(self.temp_dir)
-        self.butler: Butler = self.enterContext(Butler.from_config(self.temp_dir, writeable=True, run="run"))
-        self.butler.import_(filename=self._get_data_file("embargo_dimensions.yaml"))
+        self.butler = self.enterContext(create_butler_repo(run="run"))
+        self.butler.import_(filename=get_path_to_test_data_file("embargo_dimensions.yaml"))
         # Register a dataset type with a 'visit' dimension...
         self.butler.registry.registerDatasetType(
             DatasetType(
@@ -58,14 +59,8 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    def _get_data_file(self, filename: str) -> str:
-        test_dir = Path(__file__).absolute().parent
-        return str(test_dir / "data" / filename)
-
     async def asyncSetUp(self) -> None:
-        sqlite_path = Path(self.temp_dir) / "publication_state.sqlite"
-        self.db: Database = await self.enterAsyncContext(Database(f"sqlite+aiosqlite:///{str(sqlite_path)}"))
-        await self.db.initialize_tables()
+        self.db = await self.enterAsyncContext(create_publication_state_db())
 
     async def test_register_datasets(self) -> None:
         pvi1 = self.butler.put(
