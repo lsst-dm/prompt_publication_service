@@ -22,9 +22,11 @@
 import tempfile
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager, asynccontextmanager
+import datetime
 from pathlib import Path
+from typing import NamedTuple
 
-from lsst.daf.butler import Butler
+from lsst.daf.butler import Butler, DatasetType
 
 from lsst.prompt_publication_service.database import Database
 
@@ -49,3 +51,33 @@ async def create_publication_state_db() -> AsyncIterator[Database]:
 def get_path_to_test_data_file(filename: str) -> str:
     data_dir = Path(__file__).absolute().parent.parent.parent.parent / "tests" / "data"
     return str(data_dir / filename)
+
+
+def load_test_dimension_data(butler: Butler) -> None:
+    butler.import_(filename=get_path_to_test_data_file("embargo_dimensions.yaml"))
+
+
+VISIT_DATASET_TYPE = "preliminary_visit_image"
+NONVISIT_DATASET_TYPE = "regionTimeInfo"
+
+
+class TestVisit(NamedTuple):
+    id: int
+    time: datetime.datetime
+
+
+VISIT1 = TestVisit(2025120200439, datetime.datetime(2025, 12, 3, 7, 59, 1, 355000))
+VISIT2 = TestVisit(2025120200440, datetime.datetime(2025, 12, 3, 8, 0, 27, 811000))
+
+
+def register_test_dataset_types(butler: Butler) -> None:
+    # Register a dataset type with a 'visit' dimension...
+    butler.registry.registerDatasetType(
+        DatasetType(VISIT_DATASET_TYPE, butler.dimensions.conform(["visit", "detector"]), "int")
+    )
+    # And one without a visit dimension.
+    butler.registry.registerDatasetType(
+        DatasetType(
+            NONVISIT_DATASET_TYPE, butler.dimensions.conform(["instrument", "detector", "group"]), "int"
+        )
+    )
