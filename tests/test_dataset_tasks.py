@@ -23,10 +23,12 @@ import unittest
 from datetime import timedelta
 from uuid import UUID
 
+from lsst.daf.butler import LabeledButlerFactory, Butler
+
 from lsst.prompt_publication_service.configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from lsst.prompt_publication_service.register import register_embargo_datasets
 from lsst.prompt_publication_service.schema import DatasetOrigin, Dataset, DatasetLocationStatus
-from lsst.prompt_publication_service.tasks.transfer import unembargo_datasets
+from lsst.prompt_publication_service.tasks.transfer import unembargo_transfer_task
 from lsst.prompt_publication_service.test_utils import (
     create_butler_repo,
     create_publication_state_db,
@@ -43,10 +45,15 @@ from sqlalchemy import select
 
 class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
-        self.embargo_butler = self.enterContext(create_butler_repo(run="run"))
+        embargo_repo = self.enterContext(create_butler_repo())
+        prompt_prep_repo = self.enterContext(create_butler_repo())
+        self.butler_factory = self.enterContext(
+            LabeledButlerFactory({"embargo": embargo_repo, "prompt_prep": prompt_prep_repo}, writeable=True)
+        )
+        self.embargo_butler = self.enterContext(Butler.from_config(embargo_repo, run="run"))
         load_test_dimension_data(self.embargo_butler)
         register_test_dataset_types(self.embargo_butler)
-        self.prompt_prep_butler = self.enterContext(create_butler_repo())
+        self.prompt_prep_butler = self.enterContext(self.butler_factory.create_butler("prompt_prep"))
         load_test_dimension_data(self.prompt_prep_butler)
 
     async def asyncSetUp(self) -> None:
@@ -81,10 +88,9 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # Still in the embargo period, so non-pixel data can be unembargoed
             # but the pixel data cannot.
             self.assertEqual(
-                await unembargo_datasets(
+                await unembargo_transfer_task.run(
                     PROMPT_PROCESSING_OUTPUT_CONFIG,
-                    self.embargo_butler,
-                    self.prompt_prep_butler,
+                    self.butler_factory,
                     self.state_db,
                 ),
                 [nonvisit.id],
@@ -114,10 +120,9 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # Still in the embargo period.  We already unembargoed the
             # non-pixel data, and there shouldn't be anything else yet.
             self.assertEqual(
-                await unembargo_datasets(
+                await unembargo_transfer_task.run(
                     PROMPT_PROCESSING_OUTPUT_CONFIG,
-                    self.embargo_butler,
-                    self.prompt_prep_butler,
+                    self.butler_factory,
                     self.state_db,
                 ),
                 [],
@@ -127,10 +132,9 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # Embargo period is finished for the first visit, but not the
             # second.
             self.assertEqual(
-                await unembargo_datasets(
+                await unembargo_transfer_task.run(
                     PROMPT_PROCESSING_OUTPUT_CONFIG,
-                    self.embargo_butler,
-                    self.prompt_prep_butler,
+                    self.butler_factory,
                     self.state_db,
                 ),
                 [pvi1.id],
@@ -173,10 +177,9 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
 
         # Datasets are missing, so nothing got unembargoed.
         self.assertEqual(
-            await unembargo_datasets(
+            await unembargo_transfer_task.run(
                 PROMPT_PROCESSING_OUTPUT_CONFIG,
-                self.embargo_butler,
-                self.prompt_prep_butler,
+                self.butler_factory,
                 self.state_db,
             ),
             [],
@@ -212,10 +215,9 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         # Unembargo should report success for the existing dataset, and update
         # the state DB.
         self.assertEqual(
-            await unembargo_datasets(
+            await unembargo_transfer_task.run(
                 PROMPT_PROCESSING_OUTPUT_CONFIG,
-                self.embargo_butler,
-                self.prompt_prep_butler,
+                self.butler_factory,
                 self.state_db,
             ),
             [ref.id],

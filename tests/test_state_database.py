@@ -25,6 +25,7 @@ import json
 import tempfile
 import unittest
 
+from lsst.daf.butler import Butler
 from lsst.prompt_publication_service.register import register_dataset_batch_file
 from lsst.prompt_publication_service.schema import (
     DatasetOrigin,
@@ -47,7 +48,8 @@ from lsst.prompt_publication_service.test_utils import (
 
 class TestRegistration(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
-        self.butler = self.enterContext(create_butler_repo(run="run"))
+        repo = self.enterContext(create_butler_repo())
+        self.butler = self.enterContext(Butler.from_config(repo, run="run"))
         load_test_dimension_data(self.butler)
         register_test_dataset_types(self.butler)
 

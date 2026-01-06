@@ -32,11 +32,10 @@ from lsst.prompt_publication_service.database import Database
 
 
 @contextmanager
-def create_butler_repo(run: str | None = None) -> Iterator[Butler]:
+def create_butler_repo() -> Iterator[str]:
     with tempfile.TemporaryDirectory() as temp_dir:
         Butler.makeRepo(temp_dir)
-        with Butler.from_config(temp_dir, writeable=True, run=run) as butler:
-            yield butler
+        yield temp_dir
 
 
 @asynccontextmanager
