@@ -22,29 +22,33 @@
 import asyncio
 import logging
 from collections.abc import Iterable
-from datetime import datetime, timezone, timedelta
+from datetime import timedelta
 from itertools import batched
 from typing import NamedTuple
 
 from uuid import UUID
 from sqlalchemy import select, union_all, Select, update
 
-from lsst.daf.butler import Butler
+from lsst.daf.butler import Butler, DatasetId
 
 from ..config import DatasetTypeConfiguration
 from ..database import Database
 from ..schema import Dataset, Visit, DatasetLocationStatus
+from ..time import Time
 
 _LOG = logging.getLogger(__name__)
 
 
 async def unembargo_datasets(
     config: DatasetTypeConfiguration, source_butler: Butler, target_butler: Butler, db: Database
-) -> None:
+) -> list[DatasetId]:
     datasets = await _find_datasets_to_unembargo(config, db)
+    successful_datasets: list[DatasetId] = []
     for batch in batched(datasets, 1000):
         result = await asyncio.to_thread(_transfer_datasets, source_butler, target_butler, batch)
         await _record_transfer_result(db, result, "embargo_status", "prompt_prep_status", "unembargo_time")
+        successful_datasets.extend(result.transferred_datasets)
+    return successful_datasets
 
 
 async def _find_datasets_to_unembargo(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
@@ -59,7 +63,7 @@ async def _find_datasets_to_unembargo(config: DatasetTypeConfiguration, db: Data
         )
         embargo_hours = group.key
         if embargo_hours > 0:
-            unembargo_time = datetime.now(timezone.utc) - timedelta(hours=embargo_hours)
+            unembargo_time = Time.now() - timedelta(hours=embargo_hours)
             query = query.join(Visit).where(Visit.time < unembargo_time)
         queries.append(query)
 
@@ -109,7 +113,7 @@ async def _record_transfer_result(
     target_status_column: str,
     target_time_column: str,
 ) -> None:
-    transfer_time = datetime.now(timezone.utc)
+    transfer_time = Time.now()
 
     async with db.session() as session:
         await session.execute(
