@@ -34,7 +34,7 @@ from lsst.daf.butler import Butler, DatasetId
 from ..config import DatasetTypeConfiguration
 from ..database import Database
 from ..schema import Dataset, Visit, DatasetLocationStatus
-from ..time import Time
+from ..date_time_source import DateTimeSource
 
 _LOG = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ async def _find_datasets_to_unembargo(config: DatasetTypeConfiguration, db: Data
         )
         embargo_hours = group.key
         if embargo_hours > 0:
-            unembargo_time = Time.now() - timedelta(hours=embargo_hours)
+            unembargo_time = DateTimeSource.now() - timedelta(hours=embargo_hours)
             query = query.join(Visit).where(Visit.time < unembargo_time)
         queries.append(query)
 
@@ -114,7 +114,7 @@ async def _record_transfer_result(
     target_status_column: str,
     target_time_column: str,
 ) -> None:
-    transfer_time = Time.now()
+    transfer_time = DateTimeSource.now()
 
     async with db.session() as session:
         await session.execute(

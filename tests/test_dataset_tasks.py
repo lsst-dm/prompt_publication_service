@@ -37,7 +37,7 @@ from lsst.prompt_publication_service.test_utils import (
     VISIT1,
     VISIT2,
 )
-from lsst.prompt_publication_service.time import Time
+from lsst.prompt_publication_service.date_time_source import DateTimeSource
 from sqlalchemy import select
 
 
@@ -77,7 +77,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         # the second visit.
         between_visit_time = VISIT1.time + timedelta(seconds=30)
 
-        with Time.mock_current_time(between_visit_time, 1) as time:
+        with DateTimeSource.mock_current_time(between_visit_time, 1) as time:
             # Still in the embargo period, so non-pixel data can be unembargoed
             # but the pixel data cannot.
             self.assertEqual(
@@ -110,7 +110,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(pvi1_state.unembargo_time)
             self.assertEqual(pvi1_state.prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
 
-        with Time.mock_current_time(between_visit_time, 2) as time:
+        with DateTimeSource.mock_current_time(between_visit_time, 2) as time:
             # Still in the embargo period.  We already unembargoed the
             # non-pixel data, and there shouldn't be anything else yet.
             self.assertEqual(
@@ -123,7 +123,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
                 [],
             )
 
-        with Time.mock_current_time(between_visit_time, 80) as time:
+        with DateTimeSource.mock_current_time(between_visit_time, 80) as time:
             # Embargo period is finished for the first visit, but not the
             # second.
             self.assertEqual(
