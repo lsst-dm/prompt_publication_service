@@ -102,7 +102,7 @@ def _transfer_datasets(
         _LOG.warning(f"Datasets were not found in Butler datastore: {missing_datastore_entries}")
 
     return _DatasetTransferResult(
-        missing_datasets=list(missing_ids.union(missing_datastore_entries)),
+        missing_datasets=list(missing_ids | missing_datastore_entries),
         transferred_datasets=list(completed_ids),
     )
 
