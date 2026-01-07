@@ -12,7 +12,7 @@ class Database(AbstractAsyncContextManager):
     """Wrapper around a SQLAlchemy database connection."""
 
     def __init__(self, database_uri: str) -> None:
-        self._engine = create_async_engine(database_uri)
+        self._engine = create_async_engine(database_uri, pool_pre_ping=True)
         self._session_maker = async_sessionmaker(self._engine)
 
     async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:

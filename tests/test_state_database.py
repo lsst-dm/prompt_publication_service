@@ -19,16 +19,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from pathlib import Path
 from sqlalchemy import select
 from uuid import UUID
-import datetime
 import json
 import tempfile
 import unittest
 
-from lsst.daf.butler import Butler, DatasetType
-from lsst.prompt_publication_service.database import Database
 from lsst.prompt_publication_service.register import register_dataset_batch_file
 from lsst.prompt_publication_service.schema import (
     DatasetOrigin,
@@ -37,45 +33,32 @@ from lsst.prompt_publication_service.schema import (
     DatasetLocationStatus,
     UnknownDataset,
 )
+from lsst.prompt_publication_service.test_utils import (
+    create_butler_repo,
+    create_publication_state_db,
+    load_test_dimension_data,
+    register_test_dataset_types,
+    VISIT1,
+    VISIT2,
+    VISIT_DATASET_TYPE,
+    NONVISIT_DATASET_TYPE,
+)
 
 
 class TestRegistration(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
-        self.temp_dir = self.enterContext(tempfile.TemporaryDirectory())
-        Butler.makeRepo(self.temp_dir)
-        self.butler: Butler = self.enterContext(Butler.from_config(self.temp_dir, writeable=True, run="run"))
-        self.butler.import_(filename=self._get_data_file("embargo_dimensions.yaml"))
-        # Register a dataset type with a 'visit' dimension...
-        self.butler.registry.registerDatasetType(
-            DatasetType(
-                "preliminary_visit_image", self.butler.dimensions.conform(["visit", "detector"]), "int"
-            )
-        )
-        # And one without a visit dimension.
-        self.butler.registry.registerDatasetType(
-            DatasetType(
-                "regionTimeInfo", self.butler.dimensions.conform(["instrument", "detector", "group"]), "int"
-            )
-        )
-
-    def _get_data_file(self, filename: str) -> str:
-        test_dir = Path(__file__).absolute().parent
-        return str(test_dir / "data" / filename)
+        self.butler = self.enterContext(create_butler_repo(run="run"))
+        load_test_dimension_data(self.butler)
+        register_test_dataset_types(self.butler)
 
     async def asyncSetUp(self) -> None:
-        sqlite_path = Path(self.temp_dir) / "publication_state.sqlite"
-        self.db: Database = await self.enterAsyncContext(Database(f"sqlite+aiosqlite:///{str(sqlite_path)}"))
-        await self.db.initialize_tables()
+        self.db = await self.enterAsyncContext(create_publication_state_db())
 
     async def test_register_datasets(self) -> None:
-        pvi1 = self.butler.put(
-            10, "preliminary_visit_image", instrument="LSSTCam", visit=2025120200439, detector=10
-        )
-        pvi2 = self.butler.put(
-            11, "preliminary_visit_image", instrument="LSSTCam", visit=2025120200440, detector=11
-        )
+        pvi1 = self.butler.put(10, VISIT_DATASET_TYPE, instrument="LSSTCam", visit=VISIT1.id, detector=10)
+        pvi2 = self.butler.put(11, VISIT_DATASET_TYPE, instrument="LSSTCam", visit=VISIT2.id, detector=11)
         rti = self.butler.put(
-            2, "regionTimeInfo", instrument="LSSTCam", detector=10, group="2025-12-03T07:58:25.583"
+            2, NONVISIT_DATASET_TYPE, instrument="LSSTCam", detector=10, group="2025-12-03T07:58:25.583"
         )
 
         batch_data = {
@@ -111,7 +94,7 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             self.assertIs(datasets[0].origin, DatasetOrigin.PROMPT_PROCESSING)
             self.assertEqual(datasets[0].dataset_type, "preliminary_visit_image")
             self.assertEqual(datasets[0].instrument, "LSSTCam")
-            self.assertEqual(datasets[0].visit, 2025120200439)
+            self.assertEqual(datasets[0].visit, VISIT1.id)
             self.assertIs(datasets[0].embargo_status, DatasetLocationStatus.PRESENT)
             self.assertIs(datasets[0].prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
             self.assertIs(datasets[0].repo_main_status, DatasetLocationStatus.NEVER_PRESENT)
@@ -123,7 +106,7 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             self.assertIs(datasets[1].origin, DatasetOrigin.PROMPT_PROCESSING)
             self.assertEqual(datasets[1].dataset_type, "preliminary_visit_image")
             self.assertEqual(datasets[1].instrument, "LSSTCam")
-            self.assertEqual(datasets[1].visit, 2025120200440)
+            self.assertEqual(datasets[1].visit, VISIT2.id)
             self.assertIs(datasets[1].embargo_status, DatasetLocationStatus.PRESENT)
             self.assertIs(datasets[1].prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
             self.assertIs(datasets[1].repo_main_status, DatasetLocationStatus.NEVER_PRESENT)
@@ -133,7 +116,7 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(datasets[2].id, rti.id)
             self.assertEqual(datasets[2].origin, DatasetOrigin.PROMPT_PROCESSING)
-            self.assertEqual(datasets[2].dataset_type, "regionTimeInfo")
+            self.assertEqual(datasets[2].dataset_type, NONVISIT_DATASET_TYPE)
             self.assertEqual(datasets[2].instrument, "LSSTCam")
             self.assertIsNone(datasets[2].visit)
             self.assertIs(datasets[2].embargo_status, DatasetLocationStatus.PRESENT)
@@ -159,13 +142,13 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(visits), 2)
 
-        self.assertEqual(visits[0].visit, 2025120200439)
+        self.assertEqual(visits[0].visit, VISIT1.id)
         self.assertEqual(visits[0].instrument, "LSSTCam")
-        self.assertEqual(visits[0].time, datetime.datetime(2025, 12, 3, 7, 59, 1, 355000))
+        self.assertEqual(visits[0].time, VISIT1.time)
 
-        self.assertEqual(visits[1].visit, 2025120200440)
+        self.assertEqual(visits[1].visit, VISIT2.id)
         self.assertEqual(visits[1].instrument, "LSSTCam")
-        self.assertEqual(visits[1].time, datetime.datetime(2025, 12, 3, 8, 0, 27, 811000))
+        self.assertEqual(visits[1].time, VISIT2.time)
 
         # Dataset registration is idempotent.
         await register_datasets()

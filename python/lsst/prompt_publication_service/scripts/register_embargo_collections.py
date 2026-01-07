@@ -21,7 +21,6 @@
 
 import asyncio
 from collections import defaultdict
-import re
 
 import click
 from lsst.daf.butler import Butler, DatasetRef
@@ -29,6 +28,7 @@ from lsst.daf.butler import Butler, DatasetRef
 from ..database import Database
 from ..register import register_embargo_datasets
 from ..schema import DatasetOrigin
+from ._utils import split_dataset_types_argument
 
 
 @click.command()
@@ -42,7 +42,7 @@ def register_embargo_datasets_from_collections(
     """Script that adds datasets to the state database from a given collection
     in a Butler repository.
     """
-    dataset_types = re.split(r"[\s,]+", types)
+    dataset_types = split_dataset_types_argument(types)
     with Butler.from_config(butler_repo) as butler:
         print("Searching for datasets")
         datasets = butler.query_all_datasets(collections, name=dataset_types, limit=None)
