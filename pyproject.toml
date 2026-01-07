@@ -4,7 +4,7 @@
 
 [tool.ruff]
 line-length = 110
-target-version = "py311"
+target-version = "py314"
 exclude = [
     "doc/"
 ]
@@ -25,3 +25,14 @@ docstring-code-line-length = 69
 
 [tool.lsst_versions]
 write_to = "python/lsst/prompt_publication_service/version.py"
+
+[tool.mypy]
+plugins = "pydantic.mypy"
+
+[[tool.mypy.overrides]]
+module = [
+    'astropy.*',
+    'confluent_kafka.*',
+    'backoff.*'
+]
+ignore_missing_imports = true

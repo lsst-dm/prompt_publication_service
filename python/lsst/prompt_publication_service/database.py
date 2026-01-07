@@ -1,0 +1,62 @@
+from sqlalchemy import Insert
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from .schema import Base
+
+
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import Any, AsyncIterator
+
+
+class Database(AbstractAsyncContextManager):
+    """Wrapper around a SQLAlchemy database connection."""
+
+    def __init__(self, database_uri: str) -> None:
+        self._engine = create_async_engine(database_uri)
+        self._session_maker = async_sessionmaker(self._engine)
+
+    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        await self._engine.dispose()
+        return None
+
+    @asynccontextmanager
+    async def session(self) -> AsyncIterator[AsyncSession]:
+        """Async context manager that creates a SQLAlchemy AsyncSession."""
+        async with self._session_maker() as session:
+            yield session
+
+    async def initialize_tables(self) -> None:
+        """Starting from an empty database, create the tables and indexes
+        used by this service to track state.
+        """
+        async with self._engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+    def insert_if_not_exists(self, table: type[DeclarativeBase]) -> Insert:
+        """Returns a SQLAlchemy Insert object for the given table configured
+        with 'ON CONFLICT IGNORE' to skip inserting rows that conflict with
+        existing primary keys or unique indexes.
+
+        This makes the insert idempotent.
+
+        Parameters
+        ----------
+        table
+            One of the SQLAlchemy ORM table definitions from ``schema.py``.
+
+        Returns
+        -------
+        insert
+            SQLAlchemy Insert object.
+        """
+        dialect = self._engine.dialect.name
+        if dialect == "postgresql":
+            import sqlalchemy.dialects.postgresql
+
+            return sqlalchemy.dialects.postgresql.insert(table).on_conflict_do_nothing()
+        elif dialect == "sqlite":
+            import sqlalchemy.dialects.sqlite
+
+            return sqlalchemy.dialects.sqlite.insert(table).on_conflict_do_nothing()
+        else:
+            raise RuntimeError(f"Unhandled database engine '{dialect}'")
