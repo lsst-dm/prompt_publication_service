@@ -21,10 +21,8 @@
 
 import asyncio
 import datetime
-from typing import cast
 from uuid import UUID
 
-import astropy.time
 import logging
 import pydantic
 
@@ -154,12 +152,10 @@ def _get_visit_dimension_records(butler: Butler, data_ids: set[DataCoordinate]) 
 
 def _convert_visit_record_to_visit_row(record: DimensionRecord) -> dict:
     timespan: Timespan | None = record.timespan
-    if timespan is None or timespan.end is None or timespan.end == Timespan.EMPTY:
+    if timespan is None or timespan.end is None or timespan.end is Timespan.EMPTY:
         time = None
     else:
-        assert isinstance(timespan.end, astropy.time.Time)
-
-        utc_time = cast(astropy.time.Time, timespan.end.utc)
+        utc_time = timespan.end.utc
         time = utc_time.to_datetime(datetime.UTC)
 
     return {"instrument": record.dataId["instrument"], "visit": record.dataId["visit"], "time": time}
