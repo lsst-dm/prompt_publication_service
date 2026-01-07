@@ -58,7 +58,6 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
         "preliminary_visit_image": _TIER1_PIXEL,
         "preliminary_visit_image_background": _TIER1_PIXEL,
         "difference_kernel": _TIER1_NONPIXEL,
-        "template_detector": _TIER1_PIXEL,
         # Tier 2
         "difference_image": _TIER2_PIXEL,
         "single_visit_star_footprints": _TIER2_NONPIXEL,
@@ -71,6 +70,7 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
         "ss_object_unassociated_detector": _TIER2_NONPIXEL,
         "ss_source_detector": _TIER2_NONPIXEL,
         "regionTimeInfo": _TIER2_NONPIXEL,
+        "template_detector": _TIER2_PIXEL,
         # Non-public
         "dia_source_detector": _USDF_INTERNAL_NONPIXEL,
         "dia_source_schema": _USDF_INTERNAL_NONPIXEL,
