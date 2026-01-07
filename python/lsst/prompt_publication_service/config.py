@@ -22,10 +22,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Callable, Literal, NamedTuple
+from dataclasses import dataclass
+from typing import Callable, Literal
 
 
-class DatasetTypeConfigurationItem(NamedTuple):
+@dataclass(frozen=True)
+class DatasetTypeConfigurationItem:
     embargo_period_hours: int
     """How long we have to wait after the image was taken, in hours, before
     this dataset can be copied out of the embargo rack.
@@ -40,7 +42,8 @@ class DatasetTypeConfigurationItem(NamedTuple):
     published."""
 
 
-class ConfigurationGroup[_T](NamedTuple):
+@dataclass(frozen=True)
+class ConfigurationGroup[_T]:
     key: _T
     dataset_types: list[str]
 

@@ -22,9 +22,9 @@
 import asyncio
 import logging
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import timedelta
 from itertools import batched
-from typing import NamedTuple
 
 from uuid import UUID
 from sqlalchemy import select, union_all, Select, update
@@ -73,7 +73,8 @@ async def _find_datasets_to_unembargo(config: DatasetTypeConfiguration, db: Data
     return list(dataset_ids)
 
 
-class _DatasetTransferResult(NamedTuple):
+@dataclass(frozen=True)
+class _DatasetTransferResult:
     missing_datasets: list[UUID]
     """Datasets that were not found in the source repository."""
     transferred_datasets: list[UUID]

@@ -22,9 +22,9 @@
 import tempfile
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager, asynccontextmanager
+from dataclasses import dataclass
 import datetime
 from pathlib import Path
-from typing import NamedTuple
 
 from lsst.daf.butler import Butler, DatasetType
 
@@ -61,7 +61,8 @@ VISIT_DATASET_TYPE = "preliminary_visit_image"
 NONVISIT_DATASET_TYPE = "regionTimeInfo"
 
 
-class TestVisit(NamedTuple):
+@dataclass(frozen=True)
+class TestVisit:
     id: int
     time: datetime.datetime
 
