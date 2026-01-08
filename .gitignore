@@ -22,3 +22,5 @@ pytest_session.txt
 .cache/
 .pytest_cache
 .coverage
+
+python/lsst_prompt_publication_service.dist-info
