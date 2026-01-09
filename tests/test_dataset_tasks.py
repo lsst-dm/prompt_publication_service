@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import os
 import unittest
 from datetime import timedelta
 from uuid import UUID
@@ -28,7 +29,7 @@ from lsst.daf.butler import LabeledButlerFactory, Butler
 from lsst.prompt_publication_service.configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from lsst.prompt_publication_service.register import register_embargo_datasets
 from lsst.prompt_publication_service.schema import DatasetOrigin, Dataset, DatasetLocationStatus
-from lsst.prompt_publication_service.tasks.transfer import unembargo_transfer_task
+from lsst.prompt_publication_service.tasks.transfer import unembargo_transfer_task, repo_main_transfer_task
 from lsst.prompt_publication_service.test_utils import (
     create_butler_repo,
     create_publication_state_db,
@@ -47,14 +48,20 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         embargo_repo = self.enterContext(create_butler_repo())
         prompt_prep_repo = self.enterContext(create_butler_repo())
+        main_repo = self.enterContext(create_butler_repo())
         self.butler_factory = self.enterContext(
-            LabeledButlerFactory({"embargo": embargo_repo, "prompt_prep": prompt_prep_repo}, writeable=True)
+            LabeledButlerFactory(
+                {"embargo": embargo_repo, "prompt_prep": prompt_prep_repo, "/repo/main": main_repo},
+                writeable=True,
+            )
         )
         self.embargo_butler = self.enterContext(Butler.from_config(embargo_repo, run="run"))
         load_test_dimension_data(self.embargo_butler)
         register_test_dataset_types(self.embargo_butler)
         self.prompt_prep_butler = self.enterContext(self.butler_factory.create_butler("prompt_prep"))
         load_test_dimension_data(self.prompt_prep_butler)
+        self.main_butler = self.enterContext(self.butler_factory.create_butler("/repo/main"))
+        load_test_dimension_data(self.main_butler)
 
     async def asyncSetUp(self) -> None:
         self.state_db = await self.enterAsyncContext(create_publication_state_db())
@@ -84,7 +91,15 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         # the second visit.
         between_visit_time = VISIT1.time + timedelta(seconds=30)
 
-        with DateTimeSource.mock_current_time(between_visit_time, 1) as time:
+        with DateTimeSource.mock_current_time(between_visit_time, 1) as time1:
+            # Nothing has been copied to prompt_prep yet, so there is nothing
+            # to copy to /repo/main.
+            self.assertEqual(
+                await repo_main_transfer_task.run(
+                    PROMPT_PROCESSING_OUTPUT_CONFIG, self.butler_factory, self.state_db
+                ),
+                [],
+            )
             # Still in the embargo period, so non-pixel data can be unembargoed
             # but the pixel data cannot.
             self.assertEqual(
@@ -109,14 +124,36 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # State has been updated and the unembargo time recorded for the
             # non-pixel dataset.
             nonvisit_state = await self._get_dataset_state(nonvisit.id)
-            self.assertEqual(nonvisit_state.unembargo_time, time)
+            self.assertEqual(nonvisit_state.unembargo_time, time1)
             self.assertEqual(nonvisit_state.prompt_prep_status, DatasetLocationStatus.PRESENT)
             # The pixel dataset state is unchanged.
             pvi1_state = await self._get_dataset_state(pvi1.id)
             self.assertIsNone(pvi1_state.unembargo_time)
             self.assertEqual(pvi1_state.prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
 
-        with DateTimeSource.mock_current_time(between_visit_time, 2) as time:
+        with DateTimeSource.mock_current_time(between_visit_time, 2):
+            # Now that there is a dataset in prompt_prep, it should move to
+            # /repo/main.
+            self.assertEqual(
+                await repo_main_transfer_task.run(
+                    PROMPT_PROCESSING_OUTPUT_CONFIG, self.butler_factory, self.state_db
+                ),
+                [nonvisit.id],
+            )
+            state = await self._get_dataset_state(nonvisit.id)
+            self.assertEqual(state.repo_main_status, DatasetLocationStatus.PRESENT)
+            self.assertEqual(self.main_butler.get(nonvisit), 3)
+            # Files are hardlinked in /repo/main from prompt_prep.
+            main_path = self.main_butler.getURI(nonvisit).ospath
+            prompt_prep_path = self.prompt_prep_butler.getURI(nonvisit).ospath
+            self.assertNotEqual(main_path, prompt_prep_path)
+            self.assertTrue(os.path.samefile(main_path, prompt_prep_path))
+            # Unembargo time and prompt_prep status are not modified when
+            # copying to /repo/main.
+            self.assertEqual(state.unembargo_time, time1)
+            self.assertEqual(state.prompt_prep_status, DatasetLocationStatus.PRESENT)
+
+        with DateTimeSource.mock_current_time(between_visit_time, 3) as time:
             # Still in the embargo period.  We already unembargoed the
             # non-pixel data, and there shouldn't be anything else yet.
             self.assertEqual(
@@ -124,6 +161,12 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
                     PROMPT_PROCESSING_OUTPUT_CONFIG,
                     self.butler_factory,
                     self.state_db,
+                ),
+                [],
+            )
+            self.assertEqual(
+                await repo_main_transfer_task.run(
+                    PROMPT_PROCESSING_OUTPUT_CONFIG, self.butler_factory, self.state_db
                 ),
                 [],
             )
@@ -164,8 +207,11 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         ref2 = self.embargo_butler.put(
             2, NONVISIT_DATASET_TYPE, instrument="LSSTCam", detector=11, group="2025-12-03T07:58:25.583"
         )
+        ref3 = self.embargo_butler.put(
+            3, NONVISIT_DATASET_TYPE, instrument="LSSTCam", detector=10, group="2025-12-03T07:58:10.858"
+        )
         await register_embargo_datasets(
-            self.state_db, DatasetOrigin.PROMPT_PROCESSING, self.embargo_butler, [ref1, ref2]
+            self.state_db, DatasetOrigin.PROMPT_PROCESSING, self.embargo_butler, [ref1, ref2, ref3]
         )
 
         # Remove first dataset from both registry and datastore.
@@ -175,25 +221,47 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         # it was fully removed.
         self.embargo_butler.pruneDatasets([ref2], disassociate=False, unstore=True)
 
-        # Datasets are missing, so nothing got unembargoed.
+        # The first two datasets are missing, so only the third gets
+        # unembargoed.
         self.assertEqual(
             await unembargo_transfer_task.run(
                 PROMPT_PROCESSING_OUTPUT_CONFIG,
                 self.butler_factory,
                 self.state_db,
             ),
-            [],
+            [ref3.id],
         )
 
-        # We record the dataset as missing so that we don't try to copy it
-        # again later.
+        # The first two datasets are recorded as missing so that we don't try
+        # to copy them again later.
+        self.assertIsNone(self.prompt_prep_butler.get_dataset(ref1.id))
         state1 = await self._get_dataset_state(ref1.id)
         self.assertEqual(state1.embargo_status, DatasetLocationStatus.MISSING)
         self.assertEqual(state1.prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
         self.assertIsNone(state1.unembargo_time)
+        self.assertIsNone(self.prompt_prep_butler.get_dataset(ref2.id))
         state2 = await self._get_dataset_state(ref2.id)
         self.assertEqual(state2.embargo_status, DatasetLocationStatus.MISSING)
         self.assertEqual(state2.prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
+        # Third dataset copied as normal.
+        self.assertEqual(self.prompt_prep_butler.get(ref3), 3)
+        state3 = await self._get_dataset_state(ref3.id)
+        self.assertEqual(state3.embargo_status, DatasetLocationStatus.PRESENT)
+        self.assertEqual(state3.prompt_prep_status, DatasetLocationStatus.PRESENT)
+
+        # Make sure dataset missing from prompt_prep is recorded correctly in
+        # the state DB.
+        self.prompt_prep_butler.pruneDatasets([ref3], disassociate=True, unstore=True, purge=True)
+        self.assertEqual(
+            await repo_main_transfer_task.run(
+                PROMPT_PROCESSING_OUTPUT_CONFIG, self.butler_factory, self.state_db
+            ),
+            [],
+        )
+        state3 = await self._get_dataset_state(ref3.id)
+        self.assertEqual(state3.embargo_status, DatasetLocationStatus.PRESENT)
+        self.assertEqual(state3.prompt_prep_status, DatasetLocationStatus.MISSING)
+        self.assertEqual(state3.repo_main_status, DatasetLocationStatus.NEVER_PRESENT)
 
     async def test_unembargo_idempotency(self) -> None:
         """Test behavior of unembargo when a dataset already exists in the
@@ -223,7 +291,25 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             [ref.id],
         )
         state = await self._get_dataset_state(ref.id)
+        self.assertEqual(self.prompt_prep_butler.get(ref), 1)
         self.assertEqual(state.prompt_prep_status, DatasetLocationStatus.PRESENT)
+
+        # Same as above, but for transfer to /repo/main from prompt_prep.
+        # This one uses hardlinks instead of copy.
+        self.main_butler.transfer_from(
+            self.prompt_prep_butler, [ref], transfer="hardlink", register_dataset_types=True
+        )
+        self.assertEqual(
+            await repo_main_transfer_task.run(
+                PROMPT_PROCESSING_OUTPUT_CONFIG,
+                self.butler_factory,
+                self.state_db,
+            ),
+            [ref.id],
+        )
+        state = await self._get_dataset_state(ref.id)
+        self.assertEqual(self.main_butler.get(ref), 1)
+        self.assertEqual(state.repo_main_status, DatasetLocationStatus.PRESENT)
 
     async def _get_dataset_state(self, dataset_id: UUID) -> Dataset:
         async with self.state_db.session() as session:

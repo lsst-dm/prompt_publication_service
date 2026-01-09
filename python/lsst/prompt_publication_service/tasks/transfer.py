@@ -67,10 +67,10 @@ class TransferConfig:
     target repository.  This status will be updated to
     `DatasetLocationStatus.PRESENT` when a dataset is transferred successfully.
     """
-    target_time_column: str
+    target_time_column: str | None
     """Column name in the Dataset table containing the time associated with
-    this transfer.  This will be set to the current time when a dataset is
-    transferred successfully.
+    this transfer.  If not `None, this will be set to the current time when a
+    dataset is transferred successfully.
     """
 
 
@@ -89,7 +89,7 @@ class TransferTask:
     async def run(
         self, dataset_config: DatasetTypeConfiguration, butler_factory: LabeledButlerFactory, db: Database
     ) -> list[DatasetId]:
-        datasets = await _find_datasets_to_unembargo(dataset_config, db)
+        datasets = await self._config.dataset_lookup_function(dataset_config, db)
         successful_datasets: list[DatasetId] = []
         for batch in batched(datasets, self._config.batch_size):
             result = await asyncio.to_thread(self._transfer_datasets, butler_factory, batch)
@@ -144,13 +144,18 @@ class TransferTask:
                     for id in transfer_result.missing_datasets
                 ],
             )
+
+            if self._config.target_time_column is None:
+                time_update = {}
+            else:
+                time_update = {self._config.target_time_column: transfer_time}
             await session.execute(
                 update(Dataset),
                 [
                     {
                         "id": id,
                         self._config.target_status_column: DatasetLocationStatus.PRESENT,
-                        self._config.target_time_column: transfer_time,
+                        **time_update,
                     }
                     for id in transfer_result.transferred_datasets
                 ],
@@ -194,5 +199,34 @@ unembargo_transfer_task = TransferTask(
         source_status_column="embargo_status",
         target_status_column="prompt_prep_status",
         target_time_column="unembargo_time",
+    )
+)
+
+
+async def _find_datasets_to_copy_to_repo_main(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
+    async with db.session() as session:
+        query = (
+            select(Dataset.id)
+            .where(
+                Dataset.prompt_prep_status == DatasetLocationStatus.PRESENT,
+                Dataset.repo_main_status == DatasetLocationStatus.NEVER_PRESENT,
+            )
+            .limit(_MAX_DATASETS_PER_QUERY)
+        )
+        async with db.session() as session:
+            dataset_ids = await session.scalars(query)
+            return list(dataset_ids)
+
+
+repo_main_transfer_task = TransferTask(
+    TransferConfig(
+        source_repository="prompt_prep",
+        target_repository="/repo/main",
+        transfer_mode="hardlink",
+        dataset_lookup_function=_find_datasets_to_copy_to_repo_main,
+        batch_size=10000,
+        source_status_column="prompt_prep_status",
+        target_status_column="repo_main_status",
+        target_time_column=None,
     )
 )
