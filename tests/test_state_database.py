@@ -186,33 +186,33 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
         async with self.db.session() as session:
             visits = list(await session.scalars(select(Visit)))
-            visits.sort(key=lambda visit: visit.visit)
+            visits.sort(key=lambda visit: visit.id)
 
         self.assertEqual(len(visits), 2)
 
-        self.assertEqual(visits[0].visit, VISIT1.id)
+        self.assertEqual(visits[0].id, VISIT1.id)
         self.assertEqual(visits[0].instrument, "LSSTCam")
         self.assertEqual(visits[0].day_obs, 20251202)
         self.assertEqual(visits[0].time, VISIT1.time)
 
-        self.assertEqual(visits[1].visit, VISIT2.id)
+        self.assertEqual(visits[1].id, VISIT2.id)
         self.assertEqual(visits[1].instrument, "LSSTCam")
         self.assertEqual(visits[0].day_obs, 20251202)
         self.assertEqual(visits[1].time, VISIT2.time)
 
         async with self.db.session() as session:
             exposures = list(await session.scalars(select(Exposure)))
-            exposures.sort(key=lambda exposure: exposure.exposure)
+            exposures.sort(key=lambda exposure: exposure.id)
 
         self.assertEqual(len(exposures), 2)
 
-        self.assertEqual(exposures[0].exposure, EXPOSURE1.id)
+        self.assertEqual(exposures[0].id, EXPOSURE1.id)
         self.assertEqual(exposures[0].instrument, "LSSTCam")
         self.assertEqual(exposures[0].day_obs, 20251202)
         self.assertEqual(exposures[0].time, EXPOSURE1.time)
         self.assertTrue(exposures[0].can_see_sky)
 
-        self.assertEqual(exposures[1].exposure, EXPOSURE2.id)
+        self.assertEqual(exposures[1].id, EXPOSURE2.id)
         self.assertEqual(exposures[1].instrument, "LSSTCam")
         self.assertEqual(exposures[1].day_obs, 20251202)
         self.assertEqual(exposures[1].time, EXPOSURE2.time)

@@ -87,40 +87,33 @@ class Base(DeclarativeBase):
     pass
 
 
-class Visit(Base):
+class DimensionRecordTableMixin:
+    """Columns that are used in both the `Visit` and `Exposure tables."""
+
+    id: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
+    """Dimension primary key from the Butler (visit or exposure)."""
+    instrument: Mapped[str] = mapped_column(primary_key=True)
+    """Instrument name from the Butler."""
+    day_obs: Mapped[int] = mapped_column(types.BigInteger)
+    """Observation date as stored in the Butler.  Note that this is the local
+    date at the beginning of the observing night, and not necessarily the same
+    calendar date as the exposure time below.
+    """
+    time: Mapped[datetime | None]
+    """Date and time when the visit/exposure ended."""
+
+
+class Visit(DimensionRecordTableMixin, Base):
     """Table tracking the status of Butler `visit` dimension metadata."""
 
     __tablename__ = "visit"
 
-    visit: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
-    """Visit ID from the Butler."""
-    instrument: Mapped[str] = mapped_column(primary_key=True)
-    """Instrument name from the Butler."""
-    day_obs: Mapped[int] = mapped_column(types.BigInteger)
-    """Observation date as stored in the Butler.  Note that this is the local
-    date at the beginning of the observing night, and not necessarily the same
-    calendar date as the exposure time below.
-    """
-    time: Mapped[datetime | None]
-    """Date and time when the visit ended."""
 
-
-class Exposure(Base):
+class Exposure(DimensionRecordTableMixin, Base):
     """Table tracking the status of Butler `exposure` dimension metadata."""
 
     __tablename__ = "exposure"
 
-    exposure: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
-    """Exposure ID from the Butler."""
-    instrument: Mapped[str] = mapped_column(primary_key=True)
-    """Instrument name from the Butler."""
-    day_obs: Mapped[int] = mapped_column(types.BigInteger)
-    """Observation date as stored in the Butler.  Note that this is the local
-    date at the beginning of the observing night, and not necessarily the same
-    calendar date as the exposure time below.
-    """
-    time: Mapped[datetime | None]
-    """Date and time when the exposure ended."""
     can_see_sky: Mapped[bool]
     """`True` if this exposure contains on-sky data. `False` if it contains
     only in-dome calibration or similar data that is not subject to embargo
@@ -177,8 +170,8 @@ class Dataset(Base):
     """
 
     __table_args__ = (
-        ForeignKeyConstraint(["visit", "instrument"], ["visit.visit", "visit.instrument"]),
-        ForeignKeyConstraint(["exposure", "instrument"], ["exposure.exposure", "exposure.instrument"]),
+        ForeignKeyConstraint(["visit", "instrument"], ["visit.id", "visit.instrument"]),
+        ForeignKeyConstraint(["exposure", "instrument"], ["exposure.id", "exposure.instrument"]),
         # For queries trying to determine which datasets need to be transferred
         # from one repository or another, we always have equality constraints
         # on dataset_type (because rules are defined on a per-dataset-type
