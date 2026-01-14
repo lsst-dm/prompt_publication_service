@@ -30,6 +30,7 @@ from lsst.prompt_publication_service.register import register_dataset_batch_file
 from lsst.prompt_publication_service.schema import (
     DatasetOrigin,
     Dataset,
+    Exposure,
     Visit,
     DatasetLocationStatus,
     UnknownDataset,
@@ -39,10 +40,13 @@ from lsst.prompt_publication_service.test_utils import (
     create_publication_state_db,
     load_test_dimension_data,
     register_test_dataset_types,
+    EXPOSURE1,
+    EXPOSURE2,
     VISIT1,
     VISIT2,
     VISIT_DATASET_TYPE,
     NONVISIT_DATASET_TYPE,
+    EXPOSURE_DATASET_TYPE,
 )
 
 
@@ -62,11 +66,17 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
         rti = self.butler.put(
             2, NONVISIT_DATASET_TYPE, instrument="LSSTCam", detector=10, group="2025-12-03T07:58:25.583"
         )
+        exposure_dataset1 = self.butler.put(
+            10, EXPOSURE_DATASET_TYPE, instrument="LSSTCam", exposure=EXPOSURE1.id, detector=10
+        )
+        exposure_dataset2 = self.butler.put(
+            11, EXPOSURE_DATASET_TYPE, instrument="LSSTCam", exposure=EXPOSURE2.id, detector=10
+        )
 
         batch_data = {
             "batch_id": "59643df0-e0ed-445c-9fbe-417b526eab6b",
             "datasets": [
-                *(str(ref.id) for ref in [pvi1, pvi2, rti]),
+                *(str(ref.id) for ref in [pvi1, pvi2, rti, exposure_dataset1, exposure_dataset2]),
                 # An arbitrary dataset ID that is not present in the Butler
                 # database.
                 "f3b0055f-7375-4154-b1e4-922656c0af44",
@@ -89,44 +99,80 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
         async def check_datasets() -> None:
             async with self.db.session() as session:
                 datasets = list(await session.scalars(select(Dataset)))
-                datasets.sort(key=lambda dataset: (dataset.dataset_type, dataset.visit))
-            self.assertEqual(len(datasets), 3)
+                self.assertEqual(len(datasets), 5)
+                visit_datasets = [d for d in datasets if d.dataset_type == VISIT_DATASET_TYPE]
+                visit_datasets.sort(key=lambda d: d.visit)
+                nonvisit_datasets = [d for d in datasets if d.dataset_type == NONVISIT_DATASET_TYPE]
+                exposure_datasets = [d for d in datasets if d.dataset_type == EXPOSURE_DATASET_TYPE]
+                exposure_datasets.sort(key=lambda d: d.exposure)
 
-            self.assertEqual(datasets[0].id, pvi1.id)
-            self.assertIs(datasets[0].origin, DatasetOrigin.PROMPT_PROCESSING)
-            self.assertEqual(datasets[0].dataset_type, "preliminary_visit_image")
-            self.assertEqual(datasets[0].instrument, "LSSTCam")
-            self.assertEqual(datasets[0].visit, VISIT1.id)
-            self.assertIs(datasets[0].embargo_status, DatasetLocationStatus.PRESENT)
-            self.assertIs(datasets[0].prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIs(datasets[0].repo_main_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIs(datasets[0].google_int_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIs(datasets[0].google_prod_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIsNone(datasets[0].unembargo_time)
+            self.assertEqual(len(visit_datasets), 2)
+            self.assertEqual(visit_datasets[0].id, pvi1.id)
+            self.assertIs(visit_datasets[0].origin, DatasetOrigin.PROMPT_PROCESSING)
+            self.assertEqual(visit_datasets[0].dataset_type, "preliminary_visit_image")
+            self.assertEqual(visit_datasets[0].instrument, "LSSTCam")
+            self.assertEqual(visit_datasets[0].visit, VISIT1.id)
+            self.assertIsNone(visit_datasets[0].exposure)
+            self.assertIs(visit_datasets[0].embargo_status, DatasetLocationStatus.PRESENT)
+            self.assertIs(visit_datasets[0].prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(visit_datasets[0].repo_main_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(visit_datasets[0].google_int_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(visit_datasets[0].google_prod_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIsNone(visit_datasets[0].unembargo_time)
 
-            self.assertEqual(datasets[1].id, pvi2.id)
-            self.assertIs(datasets[1].origin, DatasetOrigin.PROMPT_PROCESSING)
-            self.assertEqual(datasets[1].dataset_type, "preliminary_visit_image")
-            self.assertEqual(datasets[1].instrument, "LSSTCam")
-            self.assertEqual(datasets[1].visit, VISIT2.id)
-            self.assertIs(datasets[1].embargo_status, DatasetLocationStatus.PRESENT)
-            self.assertIs(datasets[1].prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIs(datasets[1].repo_main_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIs(datasets[1].google_int_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIs(datasets[1].google_prod_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIsNone(datasets[1].unembargo_time)
+            self.assertEqual(visit_datasets[1].id, pvi2.id)
+            self.assertIs(visit_datasets[1].origin, DatasetOrigin.PROMPT_PROCESSING)
+            self.assertEqual(visit_datasets[1].dataset_type, "preliminary_visit_image")
+            self.assertEqual(visit_datasets[1].instrument, "LSSTCam")
+            self.assertEqual(visit_datasets[1].visit, VISIT2.id)
+            self.assertIsNone(visit_datasets[0].exposure)
+            self.assertIs(visit_datasets[1].embargo_status, DatasetLocationStatus.PRESENT)
+            self.assertIs(visit_datasets[1].prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(visit_datasets[1].repo_main_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(visit_datasets[1].google_int_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(visit_datasets[1].google_prod_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIsNone(visit_datasets[1].unembargo_time)
 
-            self.assertEqual(datasets[2].id, rti.id)
-            self.assertEqual(datasets[2].origin, DatasetOrigin.PROMPT_PROCESSING)
-            self.assertEqual(datasets[2].dataset_type, NONVISIT_DATASET_TYPE)
-            self.assertEqual(datasets[2].instrument, "LSSTCam")
-            self.assertIsNone(datasets[2].visit)
-            self.assertIs(datasets[2].embargo_status, DatasetLocationStatus.PRESENT)
-            self.assertIs(datasets[2].prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIs(datasets[2].repo_main_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIs(datasets[2].google_int_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIs(datasets[2].google_prod_status, DatasetLocationStatus.NEVER_PRESENT)
-            self.assertIsNone(datasets[2].unembargo_time)
+            self.assertEqual(len(nonvisit_datasets), 1)
+            self.assertEqual(nonvisit_datasets[0].id, rti.id)
+            self.assertEqual(nonvisit_datasets[0].origin, DatasetOrigin.PROMPT_PROCESSING)
+            self.assertEqual(nonvisit_datasets[0].dataset_type, NONVISIT_DATASET_TYPE)
+            self.assertEqual(nonvisit_datasets[0].instrument, "LSSTCam")
+            self.assertIsNone(nonvisit_datasets[0].visit)
+            self.assertIsNone(nonvisit_datasets[0].exposure)
+            self.assertIs(nonvisit_datasets[0].embargo_status, DatasetLocationStatus.PRESENT)
+            self.assertIs(nonvisit_datasets[0].prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(nonvisit_datasets[0].repo_main_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(nonvisit_datasets[0].google_int_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(nonvisit_datasets[0].google_prod_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIsNone(nonvisit_datasets[0].unembargo_time)
+
+            self.assertEqual(len(exposure_datasets), 2)
+            self.assertEqual(exposure_datasets[0].id, exposure_dataset1.id)
+            self.assertEqual(exposure_datasets[0].origin, DatasetOrigin.PROMPT_PROCESSING)
+            self.assertEqual(exposure_datasets[0].dataset_type, EXPOSURE_DATASET_TYPE)
+            self.assertEqual(exposure_datasets[0].instrument, "LSSTCam")
+            self.assertIsNone(exposure_datasets[0].visit)
+            self.assertEqual(exposure_datasets[0].exposure, EXPOSURE1.id)
+            self.assertIs(exposure_datasets[0].embargo_status, DatasetLocationStatus.PRESENT)
+            self.assertIs(exposure_datasets[0].prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(exposure_datasets[0].repo_main_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(exposure_datasets[0].google_int_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(exposure_datasets[0].google_prod_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIsNone(exposure_datasets[0].unembargo_time)
+
+            self.assertEqual(exposure_datasets[1].id, exposure_dataset2.id)
+            self.assertEqual(exposure_datasets[1].origin, DatasetOrigin.PROMPT_PROCESSING)
+            self.assertEqual(exposure_datasets[1].dataset_type, EXPOSURE_DATASET_TYPE)
+            self.assertEqual(exposure_datasets[1].instrument, "LSSTCam")
+            self.assertIsNone(exposure_datasets[1].visit)
+            self.assertEqual(exposure_datasets[1].exposure, EXPOSURE2.id)
+            self.assertIs(exposure_datasets[1].embargo_status, DatasetLocationStatus.PRESENT)
+            self.assertIs(exposure_datasets[1].prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(exposure_datasets[1].repo_main_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(exposure_datasets[1].google_int_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(exposure_datasets[1].google_prod_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIsNone(exposure_datasets[1].unembargo_time)
 
             async with self.db.session() as session:
                 unknowns = list(await session.scalars(select(UnknownDataset)))
@@ -151,6 +197,25 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(visits[1].visit, VISIT2.id)
         self.assertEqual(visits[1].instrument, "LSSTCam")
         self.assertEqual(visits[1].time, VISIT2.time)
+
+        async with self.db.session() as session:
+            exposures = list(await session.scalars(select(Exposure)))
+            exposures.sort(key=lambda exposure: exposure.exposure)
+
+        self.assertEqual(len(exposures), 2)
+
+        self.assertEqual(exposures[0].exposure, EXPOSURE1.id)
+        self.assertEqual(exposures[0].instrument, "LSSTCam")
+        self.assertEqual(exposures[0].day_obs, 20251202)
+        self.assertEqual(exposures[0].time, EXPOSURE1.time)
+        self.assertTrue(exposures[0].can_see_sky)
+
+        self.assertEqual(exposures[1].exposure, EXPOSURE2.id)
+        self.assertEqual(exposures[1].instrument, "LSSTCam")
+        self.assertEqual(exposures[1].day_obs, 20251202)
+        self.assertEqual(exposures[1].time, EXPOSURE2.time)
+        # Note -- this checks an edge case where the input can_see_sky is null.
+        self.assertTrue(exposures[1].can_see_sky)
 
         # Dataset registration is idempotent.
         await register_datasets()

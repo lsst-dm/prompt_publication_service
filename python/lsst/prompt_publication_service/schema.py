@@ -88,7 +88,7 @@ class Base(DeclarativeBase):
 
 
 class Visit(Base):
-    """Table tracking survey visit information."""
+    """Table tracking the status of Butler `visit` dimension metadata."""
 
     __tablename__ = "visit"
 
@@ -98,6 +98,29 @@ class Visit(Base):
     """Instrument name from the Butler."""
     time: Mapped[datetime | None]
     """Date and time when the visit ended."""
+
+
+class Exposure(Base):
+    """Table tracking the status of Butler `exposure` dimension metadata."""
+
+    __tablename__ = "exposure"
+
+    exposure: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
+    """Exposure ID from the Butler."""
+    instrument: Mapped[str] = mapped_column(primary_key=True)
+    """Instrument name from the Butler."""
+    day_obs: Mapped[int] = mapped_column(types.BigInteger)
+    """Observation date as stored in the Butler.  Note that this is the local
+    date at the beginning of the observing night, and not necessarily the same
+    calendar date as the exposure time below.
+    """
+    time: Mapped[datetime | None]
+    """Date and time when the exposure ended."""
+    can_see_sky: Mapped[bool]
+    """`True` if this exposure contains on-sky data. `False` if it contains
+    only in-dome calibration or similar data that is not subject to embargo
+    restrictions.
+    """
 
 
 class Dataset(Base):
@@ -117,6 +140,8 @@ class Dataset(Base):
     """Instrument name from the Butler."""
     visit: Mapped[int] = mapped_column(types.BigInteger, nullable=True)
     """Visit ID from the Butler."""
+    exposure: Mapped[int] = mapped_column(types.BigInteger, nullable=True)
+    """Exposure ID from the Butler."""
 
     embargo_status: Mapped[DatasetLocationStatus] = mapped_column(_EnumColumn(DatasetLocationStatus))
     """Status of this dataset in the ``embargo`` Butler repository."""
@@ -148,6 +173,7 @@ class Dataset(Base):
 
     __table_args__ = (
         ForeignKeyConstraint(["visit", "instrument"], ["visit.visit", "visit.instrument"]),
+        ForeignKeyConstraint(["exposure", "instrument"], ["exposure.exposure", "exposure.instrument"]),
         # For queries trying to determine which datasets need to be transferred
         # from one repository or another, we always have equality constraints
         # on dataset_type (because rules are defined on a per-dataset-type
