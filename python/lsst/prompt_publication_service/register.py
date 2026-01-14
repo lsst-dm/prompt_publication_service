@@ -172,6 +172,7 @@ def _convert_visit_record_to_visit_row(record: DimensionRecord) -> dict:
     return {
         "instrument": record.dataId["instrument"],
         "visit": record.dataId["visit"],
+        "day_obs": record.get("day_obs"),
         "time": _convert_butler_timespan_to_datetime(record.timespan),
     }
 

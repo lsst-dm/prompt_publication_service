@@ -192,10 +192,12 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(visits[0].visit, VISIT1.id)
         self.assertEqual(visits[0].instrument, "LSSTCam")
+        self.assertEqual(visits[0].day_obs, 20251202)
         self.assertEqual(visits[0].time, VISIT1.time)
 
         self.assertEqual(visits[1].visit, VISIT2.id)
         self.assertEqual(visits[1].instrument, "LSSTCam")
+        self.assertEqual(visits[0].day_obs, 20251202)
         self.assertEqual(visits[1].time, VISIT2.time)
 
         async with self.db.session() as session:

@@ -96,6 +96,11 @@ class Visit(Base):
     """Visit ID from the Butler."""
     instrument: Mapped[str] = mapped_column(primary_key=True)
     """Instrument name from the Butler."""
+    day_obs: Mapped[int] = mapped_column(types.BigInteger)
+    """Observation date as stored in the Butler.  Note that this is the local
+    date at the beginning of the observing night, and not necessarily the same
+    calendar date as the exposure time below.
+    """
     time: Mapped[datetime | None]
     """Date and time when the visit ended."""
 
