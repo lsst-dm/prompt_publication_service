@@ -20,7 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from enum import IntEnum
-from typing import Any
+from typing import Any, TypeAlias, Literal
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy import ForeignKeyConstraint, Index
@@ -107,6 +107,19 @@ class Base(DeclarativeBase):
     pass
 
 
+ButlerRepository: TypeAlias = Literal[
+    "embargo", "prompt_prep", "/repo/main", "prompt_google_int", "prompt_google_prod"
+]
+
+_butler_repository_to_status_column: dict[ButlerRepository, str] = {
+    "embargo": "embargo_status",
+    "prompt_prep": "prompt_prep_status",
+    "/repo/main": "repo_main_status",
+    "prompt_google_int": "google_int_status",
+    "prompt_google_prod": "google_prod_status",
+}
+
+
 def _dimension_status_column(
     default: DimensionRecordStatus = DimensionRecordStatus.NEVER_PRESENT,
 ) -> Mapped[DimensionRecordStatus]:
@@ -143,6 +156,14 @@ class DimensionRecordTableMixin:
     google_prod_status = _dimension_status_column()
     """Status of these dimension records in the ``prompt`` Butler repository on
     the Google RSP production environment.  """
+
+    @classmethod
+    def get_status_column(cls, repository: ButlerRepository) -> Mapped[DimensionRecordStatus]:
+        return getattr(cls, cls.get_status_column_name(repository))
+
+    @classmethod
+    def get_status_column_name(cls, repository: ButlerRepository) -> str:
+        return _butler_repository_to_status_column[repository]
 
 
 class Visit(DimensionRecordTableMixin, Base):
@@ -236,6 +257,14 @@ class Dataset(Base):
         ),
     )
 
+    @classmethod
+    def get_status_column(cls, repository: ButlerRepository) -> Mapped[DatasetLocationStatus]:
+        return getattr(cls, cls.get_status_column_name(repository))
+
+    @classmethod
+    def get_status_column_name(cls, repository: ButlerRepository) -> str:
+        return _butler_repository_to_status_column[repository]
+
 
 class UnknownDataset(Base):
     """Table storing a list of datasets that we were instructed to register in
@@ -253,3 +282,9 @@ class UnknownDataset(Base):
     """Human readable string describing why this dataset is being tracked in
     this table.
     """
+
+
+for table in (Dataset, Visit, Exposure):
+    for status_column in _butler_repository_to_status_column.values():
+        if getattr(table, status_column, None) is None:
+            raise AssertionError(f"Table {table.__tablename__} is missing status column {status_column}")

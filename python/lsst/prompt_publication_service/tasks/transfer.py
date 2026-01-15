@@ -34,7 +34,7 @@ from lsst.daf.butler import DatasetId, LabeledButlerFactory
 
 from ..config import DatasetTypeConfiguration
 from ..database import Database
-from ..schema import Dataset, Visit, DatasetLocationStatus
+from ..schema import Dataset, Visit, DatasetLocationStatus, ButlerRepository
 from ..date_time_source import DateTimeSource
 from .base import TaskContext
 
@@ -43,11 +43,11 @@ _LOG = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class TransferConfig:
-    source_repository: str
+    source_repository: ButlerRepository
     """Label of the Butler repository that datasets will be transferred
     from.
     """
-    target_repository: str
+    target_repository: ButlerRepository
     """Label of the Butler repository that datasets will be transferred to."""
     transfer_mode: Literal["copy", "hardlink"]
     """Butler transfer mode, see `lsst.daf.butler.Butler.transfer_from`."""
@@ -57,17 +57,6 @@ class TransferConfig:
     """
     batch_size: int
     """Maximum number of datasets to transfer in a single batch."""
-    source_status_column: str
-    """Column name in the Dataset table containing the location status for the
-    source repository.  This status will be updated to
-    `DatasetLocationStatus.MISSING` if a dataset is not found in the source
-    repository.
-    """
-    target_status_column: str
-    """Column name in the Dataset table containing the location status for the
-    target repository.  This status will be updated to
-    `DatasetLocationStatus.PRESENT` when a dataset is transferred successfully.
-    """
     target_time_column: str | None
     """Column name in the Dataset table containing the time associated with
     this transfer.  If not `None, this will be set to the current time when a
@@ -134,12 +123,17 @@ class TransferTask:
         transfer_result: _DatasetTransferResult,
     ) -> None:
         transfer_time = DateTimeSource.now()
+        source_status_column = Dataset.get_status_column_name(self._config.source_repository)
+        target_status_column = Dataset.get_status_column_name(self._config.target_repository)
 
         async with db.session() as session:
             await session.execute(
                 update(Dataset),
                 [
-                    {"id": id, self._config.source_status_column: DatasetLocationStatus.MISSING}
+                    {
+                        "id": id,
+                        source_status_column: DatasetLocationStatus.MISSING,
+                    }
                     for id in transfer_result.missing_datasets
                 ],
             )
@@ -153,7 +147,7 @@ class TransferTask:
                 [
                     {
                         "id": id,
-                        self._config.target_status_column: DatasetLocationStatus.PRESENT,
+                        target_status_column: DatasetLocationStatus.PRESENT,
                         **time_update,
                     }
                     for id in transfer_result.transferred_datasets
@@ -200,8 +194,6 @@ unembargo_transfer_task = TransferTask(
         # transactions open during the file transfer process.  So it's best to
         # copy only a handful of files at a time.
         batch_size=100,
-        source_status_column="embargo_status",
-        target_status_column="prompt_prep_status",
         target_time_column="unembargo_time",
     )
 )
@@ -229,8 +221,6 @@ repo_main_transfer_task = TransferTask(
         transfer_mode="hardlink",
         dataset_lookup_function=_find_datasets_to_copy_to_repo_main,
         batch_size=10000,
-        source_status_column="prompt_prep_status",
-        target_status_column="repo_main_status",
         target_time_column=None,
     )
 )
