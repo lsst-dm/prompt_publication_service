@@ -58,6 +58,26 @@ class DatasetLocationStatus(IntEnum):
     """
 
 
+class DimensionRecordStatus(IntEnum):
+    """Enum representing the status of a set of dimension metadata records in a
+    given repository.
+    """
+
+    # These integer values are persisted in the database -- do not re-use
+    # an integer value when making changes.
+
+    NEVER_PRESENT = 0
+    """The dimension records have never been set up in this location."""
+    INITIAL = 1
+    """The dimension records in this location are based on the initial
+    values read from the raw images.
+    """
+    REVISED = 2
+    """The dimension records in this location have been updated with revised
+    values from `visit_geometry` datasets.
+    """
+
+
 class _EnumColumn[T: IntEnum](types.TypeDecorator):
     """SQLAlchemy column type for storing an ``IntEnum`` value in the DB as a
     SMALLINT value.
@@ -87,6 +107,12 @@ class Base(DeclarativeBase):
     pass
 
 
+def _dimension_status_column(
+    default: DimensionRecordStatus = DimensionRecordStatus.NEVER_PRESENT,
+) -> Mapped[DimensionRecordStatus]:
+    return mapped_column(_EnumColumn(DimensionRecordStatus), default=default, index=True)
+
+
 class DimensionRecordTableMixin:
     """Columns that are used in both the `Visit` and `Exposure tables."""
 
@@ -101,6 +127,22 @@ class DimensionRecordTableMixin:
     """
     time: Mapped[datetime | None]
     """Date and time when the visit/exposure ended."""
+
+    embargo_status = _dimension_status_column(DimensionRecordStatus.INITIAL)
+    """Status of these dimension records in the ``embargo`` Butler
+    repository."""
+    prompt_prep_status = _dimension_status_column()
+    """Status of these dimension records in the ``prompt_prep`` Butler
+    repository."""
+    repo_main_status = _dimension_status_column()
+    """Status of these dimension records in the ``/repo/main`` Butler
+    repository."""
+    google_int_status = _dimension_status_column()
+    """Status of these dimension records in the ``prompt`` Butler repository on
+    the Google RSP integration testing environment.  """
+    google_prod_status = _dimension_status_column()
+    """Status of these dimension records in the ``prompt`` Butler repository on
+    the Google RSP production environment.  """
 
 
 class Visit(DimensionRecordTableMixin, Base):
