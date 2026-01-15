@@ -36,6 +36,7 @@ from ..config import DatasetTypeConfiguration
 from ..database import Database
 from ..schema import Dataset, Visit, DatasetLocationStatus
 from ..date_time_source import DateTimeSource
+from .base import TaskContext
 
 _LOG = logging.getLogger(__name__)
 
@@ -86,14 +87,12 @@ class TransferTask:
     def __init__(self, transfer_config: TransferConfig):
         self._config = transfer_config
 
-    async def run(
-        self, dataset_config: DatasetTypeConfiguration, butler_factory: LabeledButlerFactory, db: Database
-    ) -> list[DatasetId]:
-        datasets = await self._config.dataset_lookup_function(dataset_config, db)
+    async def run(self, ctx: TaskContext) -> list[DatasetId]:
+        datasets = await self._config.dataset_lookup_function(ctx.dataset_config, ctx.state_database)
         successful_datasets: list[DatasetId] = []
         for batch in batched(datasets, self._config.batch_size):
-            result = await asyncio.to_thread(self._transfer_datasets, butler_factory, batch)
-            await self._record_transfer_result(db, result)
+            result = await asyncio.to_thread(self._transfer_datasets, ctx.butler_factory, batch)
+            await self._record_transfer_result(ctx.state_database, result)
             successful_datasets.extend(result.transferred_datasets)
         return successful_datasets
 

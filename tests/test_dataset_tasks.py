@@ -29,6 +29,7 @@ from lsst.daf.butler import LabeledButlerFactory, Butler
 from lsst.prompt_publication_service.configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from lsst.prompt_publication_service.register import register_embargo_datasets
 from lsst.prompt_publication_service.schema import DatasetOrigin, Dataset, DatasetLocationStatus
+from lsst.prompt_publication_service.tasks.base import TaskContext
 from lsst.prompt_publication_service.tasks.transfer import unembargo_transfer_task, repo_main_transfer_task
 from lsst.prompt_publication_service.test_utils import (
     create_butler_repo,
@@ -65,6 +66,11 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self) -> None:
         self.state_db = await self.enterAsyncContext(create_publication_state_db())
+        self.context = TaskContext(
+            dataset_config=PROMPT_PROCESSING_OUTPUT_CONFIG,
+            butler_factory=self.butler_factory,
+            state_database=self.state_db,
+        )
 
     async def test_unembargo(self) -> None:
         """Test the basic functionality of the unembargo process."""
@@ -95,19 +101,13 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # Nothing has been copied to prompt_prep yet, so there is nothing
             # to copy to /repo/main.
             self.assertEqual(
-                await repo_main_transfer_task.run(
-                    PROMPT_PROCESSING_OUTPUT_CONFIG, self.butler_factory, self.state_db
-                ),
+                await repo_main_transfer_task.run(self.context),
                 [],
             )
             # Still in the embargo period, so non-pixel data can be unembargoed
             # but the pixel data cannot.
             self.assertEqual(
-                await unembargo_transfer_task.run(
-                    PROMPT_PROCESSING_OUTPUT_CONFIG,
-                    self.butler_factory,
-                    self.state_db,
-                ),
+                await unembargo_transfer_task.run(self.context),
                 [nonvisit.id],
             )
             # Non-pixel dataset is copied from embargo repo to prompt_prep
@@ -135,9 +135,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # Now that there is a dataset in prompt_prep, it should move to
             # /repo/main.
             self.assertEqual(
-                await repo_main_transfer_task.run(
-                    PROMPT_PROCESSING_OUTPUT_CONFIG, self.butler_factory, self.state_db
-                ),
+                await repo_main_transfer_task.run(self.context),
                 [nonvisit.id],
             )
             state = await self._get_dataset_state(nonvisit.id)
@@ -157,17 +155,11 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # Still in the embargo period.  We already unembargoed the
             # non-pixel data, and there shouldn't be anything else yet.
             self.assertEqual(
-                await unembargo_transfer_task.run(
-                    PROMPT_PROCESSING_OUTPUT_CONFIG,
-                    self.butler_factory,
-                    self.state_db,
-                ),
+                await unembargo_transfer_task.run(self.context),
                 [],
             )
             self.assertEqual(
-                await repo_main_transfer_task.run(
-                    PROMPT_PROCESSING_OUTPUT_CONFIG, self.butler_factory, self.state_db
-                ),
+                await repo_main_transfer_task.run(self.context),
                 [],
             )
 
@@ -175,11 +167,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # Embargo period is finished for the first visit, but not the
             # second.
             self.assertEqual(
-                await unembargo_transfer_task.run(
-                    PROMPT_PROCESSING_OUTPUT_CONFIG,
-                    self.butler_factory,
-                    self.state_db,
-                ),
+                await unembargo_transfer_task.run(self.context),
                 [pvi1.id],
             )
             # Visit 1 dataset was copied from embargo to prompt_prep.
@@ -224,11 +212,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         # The first two datasets are missing, so only the third gets
         # unembargoed.
         self.assertEqual(
-            await unembargo_transfer_task.run(
-                PROMPT_PROCESSING_OUTPUT_CONFIG,
-                self.butler_factory,
-                self.state_db,
-            ),
+            await unembargo_transfer_task.run(self.context),
             [ref3.id],
         )
 
@@ -253,9 +237,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         # the state DB.
         self.prompt_prep_butler.pruneDatasets([ref3], disassociate=True, unstore=True, purge=True)
         self.assertEqual(
-            await repo_main_transfer_task.run(
-                PROMPT_PROCESSING_OUTPUT_CONFIG, self.butler_factory, self.state_db
-            ),
+            await repo_main_transfer_task.run(self.context),
             [],
         )
         state3 = await self._get_dataset_state(ref3.id)
@@ -283,11 +265,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         # Unembargo should report success for the existing dataset, and update
         # the state DB.
         self.assertEqual(
-            await unembargo_transfer_task.run(
-                PROMPT_PROCESSING_OUTPUT_CONFIG,
-                self.butler_factory,
-                self.state_db,
-            ),
+            await unembargo_transfer_task.run(self.context),
             [ref.id],
         )
         state = await self._get_dataset_state(ref.id)
@@ -300,11 +278,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             self.prompt_prep_butler, [ref], transfer="hardlink", register_dataset_types=True
         )
         self.assertEqual(
-            await repo_main_transfer_task.run(
-                PROMPT_PROCESSING_OUTPUT_CONFIG,
-                self.butler_factory,
-                self.state_db,
-            ),
+            await repo_main_transfer_task.run(self.context),
             [ref.id],
         )
         state = await self._get_dataset_state(ref.id)
