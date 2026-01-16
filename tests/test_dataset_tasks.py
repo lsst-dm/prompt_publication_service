@@ -24,7 +24,7 @@ import unittest
 from datetime import timedelta
 from uuid import UUID
 
-from lsst.daf.butler import LabeledButlerFactory, Butler
+from lsst.daf.butler import Butler
 
 from lsst.prompt_publication_service.configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from lsst.prompt_publication_service.register import register_embargo_datasets
@@ -32,7 +32,7 @@ from lsst.prompt_publication_service.schema import DatasetOrigin, Dataset, Datas
 from lsst.prompt_publication_service.tasks.base import TaskContext
 from lsst.prompt_publication_service.tasks.transfer import unembargo_transfer_task, repo_main_transfer_task
 from lsst.prompt_publication_service.test_utils import (
-    create_butler_repo,
+    setup_butler_factory_with_empty_repos,
     create_publication_state_db,
     load_test_dimension_data,
     register_test_dataset_types,
@@ -47,16 +47,12 @@ from sqlalchemy import select
 
 class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
-        embargo_repo = self.enterContext(create_butler_repo())
-        prompt_prep_repo = self.enterContext(create_butler_repo())
-        main_repo = self.enterContext(create_butler_repo())
         self.butler_factory = self.enterContext(
-            LabeledButlerFactory(
-                {"embargo": embargo_repo, "prompt_prep": prompt_prep_repo, "/repo/main": main_repo},
-                writeable=True,
-            )
+            setup_butler_factory_with_empty_repos(["embargo", "prompt_prep", "/repo/main"])
         )
-        self.embargo_butler = self.enterContext(Butler.from_config(embargo_repo, run="run"))
+        self.embargo_butler: Butler = self.enterContext(
+            self.butler_factory.create_butler("embargo").clone(run="run")
+        )
         load_test_dimension_data(self.embargo_butler)
         register_test_dataset_types(self.embargo_butler)
         self.prompt_prep_butler = self.enterContext(self.butler_factory.create_butler("prompt_prep"))
