@@ -49,6 +49,15 @@ data:
   - instrument: LSSTCam
     name: '2025-12-03T07:58:25.583'
 - type: dimension
+  element: visit_system
+  records:
+  - instrument: LSSTCam
+    id: 0
+    name: one-to-one
+  - instrument: LSSTCam
+    id: 2
+    name: by-seq-start-end
+- type: dimension
   element: physical_filter
   records:
   - instrument: LSSTCam
@@ -141,6 +150,15 @@ data:
     datetime_begin: !butler_time/tai/iso '2025-12-03 08:00:33.880859613'
     datetime_end: !butler_time/tai/iso '2025-12-03 08:01:04.811000000'
 - type: dimension
+  element: visit_definition
+  records:
+  - instrument: LSSTCam
+    exposure: 2025120200439
+    visit: 2025120200439
+  - instrument: LSSTCam
+    exposure: 2025120200440
+    visit: 2025120200440
+- type: dimension
   element: visit_detector_region
   records:
   - instrument: LSSTCam
@@ -163,3 +181,18 @@ data:
     visit: 2025120200440
     region: !<lsst.sphgeom.ConvexPolygon>
       encoded: 70f1092604afe3d9bffae8ce50785ce03f211345db9a43e8bf54cb3473c4eed9bf3d0add1ab378e03f24eff1db812de8bf71c632766eaed9bfc1f498b68f85e03fab7510cee435e8bf1a15eee158a3d9bfb69bb42c5269e03f5fa03eadff4be8bf
+- type: dimension
+  element: visit_system_membership
+  records:
+  - instrument: LSSTCam
+    visit_system: 0
+    visit: 2025120200439
+  - instrument: LSSTCam
+    visit_system: 0
+    visit: 2025120200440
+  - instrument: LSSTCam
+    visit_system: 2
+    visit: 2025120200439
+  - instrument: LSSTCam
+    visit_system: 2
+    visit: 2025120200440

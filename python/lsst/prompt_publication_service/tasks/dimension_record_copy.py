@@ -1,0 +1,97 @@
+# This file is part of prompt_publication_service.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import asyncio
+import logging
+from collections.abc import Iterable
+from itertools import batched
+
+from sqlalchemy import select
+
+from lsst.daf.butler import LabeledButlerFactory, DataCoordinate
+
+from ..database import Database
+from ..schema import (
+    ButlerRepository,
+    DimensionRecordTable,
+    DimensionRecordRow,
+    DimensionRecordStatus,
+)
+from .base import TaskContext
+
+_LOG = logging.getLogger(__name__)
+
+
+class DimensionRecordCopyTask:
+    """Task for copying dimension records between Butler repositories."""
+
+    def __init__(
+        self,
+        table: DimensionRecordTable,
+        source_repository: ButlerRepository,
+        target_repository: ButlerRepository,
+    ) -> None:
+        self._table = table
+        self._source_repository = source_repository
+        self._target_repository = target_repository
+
+    async def run(self, context: TaskContext) -> int:
+        rows = await self._find_records_to_unembargo(context.state_database)
+        batch_size = 5000
+        for batch in batched(rows, batch_size):
+            await asyncio.to_thread(self._transfer_dimension_records, context.butler_factory, batch)
+            await self._record_result(context.state_database, batch)
+        return len(rows)
+
+    async def _find_records_to_unembargo(self, state_database: Database) -> list[DimensionRecordRow]:
+        query = (
+            select(self._table)
+            .where(
+                self._table.get_status_column(self._source_repository) == DimensionRecordStatus.INITIAL,
+                self._table.get_status_column(self._target_repository) == DimensionRecordStatus.NEVER_PRESENT,
+            )
+            .limit(1_000_000)
+        )
+        async with state_database.session() as session:
+            return list(await session.scalars(query))
+
+    def _transfer_dimension_records(
+        self, butler_factory: LabeledButlerFactory, rows: Iterable[DimensionRecordRow]
+    ) -> None:
+        with (
+            butler_factory.create_butler(label=self._source_repository) as source_butler,
+            butler_factory.create_butler(label=self._target_repository) as target_butler,
+        ):
+            data_coordinates = [
+                DataCoordinate.standardize(
+                    {"instrument": row.instrument, self._table.butler_dimension: row.id},
+                    universe=source_butler.dimensions,
+                )
+                for row in rows
+            ]
+            target_butler.transfer_dimension_records_from(source_butler, data_coordinates)
+
+    async def _record_result(self, state_database: Database, rows: Iterable[DimensionRecordRow]) -> None:
+        async with state_database.session() as session:
+            session.add_all(rows)
+            for row in rows:
+                row.set_status_column(self._target_repository, DimensionRecordStatus.INITIAL)
+            await session.commit()

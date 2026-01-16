@@ -161,6 +161,9 @@ class DimensionRecordTableMixin:
     def get_status_column(cls, repository: ButlerRepository) -> Mapped[DimensionRecordStatus]:
         return getattr(cls, cls.get_status_column_name(repository))
 
+    def set_status_column(self, repository: ButlerRepository, status: DimensionRecordStatus) -> None:
+        setattr(self, self.get_status_column_name(repository), status)
+
     @classmethod
     def get_status_column_name(cls, repository: ButlerRepository) -> str:
         return _butler_repository_to_status_column[repository]
@@ -170,6 +173,9 @@ class Visit(DimensionRecordTableMixin, Base):
     """Table tracking the status of Butler `visit` dimension metadata."""
 
     __tablename__ = "visit"
+
+    butler_dimension = "visit"
+    """Name of the corresponding Butler dimension.  This is not a SQL column."""
 
 
 class Exposure(DimensionRecordTableMixin, Base):
@@ -182,6 +188,13 @@ class Exposure(DimensionRecordTableMixin, Base):
     only in-dome calibration or similar data that is not subject to embargo
     restrictions.
     """
+
+    butler_dimension = "exposure"
+    """Name of the corresponding Butler dimension.  This is not a SQL column."""
+
+
+DimensionRecordTable: TypeAlias = type[Visit] | type[Exposure]
+DimensionRecordRow: TypeAlias = Visit | Exposure
 
 
 class Dataset(Base):

@@ -1,0 +1,103 @@
+# This file is part of prompt_publication_service.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import unittest
+
+from lsst.prompt_publication_service.configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
+from lsst.prompt_publication_service.tasks.base import TaskContext
+from lsst.prompt_publication_service.tasks.dimension_record_copy import DimensionRecordCopyTask
+from lsst.prompt_publication_service.schema import Visit, Exposure
+from lsst.prompt_publication_service.test_utils import (
+    setup_butler_factory_with_empty_repos,
+    create_publication_state_db,
+    load_test_dimension_data,
+    VISIT1,
+    VISIT2,
+    EXPOSURE1,
+)
+
+
+class TestDimensionRecordCopy(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.butler_factory = self.enterContext(
+            setup_butler_factory_with_empty_repos(["embargo", "prompt_prep", "/repo/main"])
+        )
+        load_test_dimension_data(self.butler_factory.create_butler("embargo"))
+        self.prompt_prep_butler = self.butler_factory.create_butler("prompt_prep")
+        self.repo_main_butler = self.butler_factory.create_butler("/repo/main")
+
+    async def asyncSetUp(self) -> None:
+        self.state_db = await self.enterAsyncContext(create_publication_state_db())
+        self.context = TaskContext(
+            dataset_config=PROMPT_PROCESSING_OUTPUT_CONFIG,
+            butler_factory=self.butler_factory,
+            state_database=self.state_db,
+        )
+
+    async def test_dimension_record_copy_visit(self) -> None:
+        async with self.state_db.session() as session:
+            session.add_all(
+                [
+                    Visit(id=VISIT1.id, instrument="LSSTCam", day_obs=20251202, time=None),
+                    Visit(id=VISIT2.id, instrument="LSSTCam", day_obs=20251202, time=None),
+                ]
+            )
+            await session.commit()
+
+        prompt_prep_task = DimensionRecordCopyTask(Visit, "embargo", "prompt_prep")
+        repo_main_task = DimensionRecordCopyTask(Visit, "prompt_prep", "/repo/main")
+
+        # prompt_prep is still empty, so there is nothing to copy from it.
+        self.assertEqual(await repo_main_task.run(self.context), 0)
+
+        # Copy from embargo to prompt_prep.  In addition to the visit records
+        # themselves, it should transfer all associated records.
+        self.assertEqual(await prompt_prep_task.run(self.context), 2)
+        self.assertEqual(len(self.prompt_prep_butler.query_dimension_records("visit")), 2)
+        self.assertEqual(len(self.prompt_prep_butler.query_dimension_records("visit_detector_region")), 4)
+        self.assertEqual(len(self.prompt_prep_butler.query_dimension_records("visit_definition")), 2)
+        self.assertEqual(len(self.prompt_prep_butler.query_dimension_records("exposure")), 2)
+
+        # Running a second time finds nothing left to copy.
+        self.assertEqual(await prompt_prep_task.run(self.context), 0)
+
+        # Transfer to /repo/main now picks up the records from prompt_prep
+        self.assertEqual(await repo_main_task.run(self.context), 2)
+        self.assertEqual(len(self.repo_main_butler.query_dimension_records("visit")), 2)
+        self.assertEqual(len(self.repo_main_butler.query_dimension_records("visit_detector_region")), 4)
+        self.assertEqual(len(self.repo_main_butler.query_dimension_records("visit_definition")), 2)
+        self.assertEqual(len(self.repo_main_butler.query_dimension_records("exposure")), 2)
+
+    async def test_dimension_record_copy_exposure(self) -> None:
+        async with self.state_db.session() as session:
+            session.add_all(
+                [
+                    Exposure(
+                        id=EXPOSURE1.id, instrument="LSSTCam", day_obs=20251202, can_see_sky=True, time=None
+                    ),
+                ]
+            )
+            await session.commit()
+
+        task = DimensionRecordCopyTask(Exposure, "embargo", "prompt_prep")
+        self.assertEqual(await task.run(self.context), 1)
+        self.assertEqual(len(self.prompt_prep_butler.query_dimension_records("exposure")), 1)
+        self.assertEqual(len(self.repo_main_butler.query_dimension_records("visit", explain=False)), 0)
