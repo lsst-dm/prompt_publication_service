@@ -28,14 +28,24 @@ from lsst.daf.butler import Butler
 
 from lsst.prompt_publication_service.configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from lsst.prompt_publication_service.register import register_embargo_datasets
-from lsst.prompt_publication_service.schema import DatasetOrigin, Dataset, DatasetLocationStatus
+from lsst.prompt_publication_service.schema import (
+    DatasetOrigin,
+    Dataset,
+    DatasetLocationStatus,
+    Exposure,
+    Visit,
+)
 from lsst.prompt_publication_service.tasks.base import TaskContext
+from lsst.prompt_publication_service.tasks.dimension_record_copy import DimensionRecordCopyTask
 from lsst.prompt_publication_service.tasks.transfer import unembargo_transfer_task, repo_main_transfer_task
 from lsst.prompt_publication_service.test_utils import (
     setup_butler_factory_with_empty_repos,
     create_publication_state_db,
-    load_test_dimension_data,
+    load_base_dimension_data,
+    load_visit_dimension_data,
     register_test_dataset_types,
+    EXPOSURE_DATASET_TYPE,
+    EXPOSURE1,
     NONVISIT_DATASET_TYPE,
     VISIT_DATASET_TYPE,
     VISIT1,
@@ -53,12 +63,13 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         self.embargo_butler: Butler = self.enterContext(
             self.butler_factory.create_butler("embargo").clone(run="run")
         )
-        load_test_dimension_data(self.embargo_butler)
+        load_base_dimension_data(self.embargo_butler)
+        load_visit_dimension_data(self.embargo_butler)
         register_test_dataset_types(self.embargo_butler)
         self.prompt_prep_butler = self.enterContext(self.butler_factory.create_butler("prompt_prep"))
-        load_test_dimension_data(self.prompt_prep_butler)
+        load_base_dimension_data(self.prompt_prep_butler)
         self.main_butler = self.enterContext(self.butler_factory.create_butler("/repo/main"))
-        load_test_dimension_data(self.main_butler)
+        load_base_dimension_data(self.main_butler)
 
     async def asyncSetUp(self) -> None:
         self.state_db = await self.enterAsyncContext(create_publication_state_db())
@@ -79,12 +90,18 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         pvi2 = self.embargo_butler.put(
             2, VISIT_DATASET_TYPE, instrument="LSSTCam", visit=VISIT2.id, detector=11
         )
-        # Non-pixel dataset that can be unembargoed immediately.
+        # Non-pixel dataset that can be unembargoed immediately, but requires
+        # exposure records prior to the dataset transfer.
+        exposure = self.embargo_butler.put(
+            1, EXPOSURE_DATASET_TYPE, instrument="LSSTCam", exposure=EXPOSURE1.id, detector=10
+        )
+        # Non-pixel dataset that can be unembargoed immediately with no
+        # prerequisites.
         nonvisit = self.embargo_butler.put(
             3, NONVISIT_DATASET_TYPE, instrument="LSSTCam", detector=10, group="2025-12-03T07:58:25.583"
         )
 
-        datasets = [pvi1, pvi2, nonvisit]
+        datasets = [pvi1, pvi2, nonvisit, exposure]
         await register_embargo_datasets(
             self.state_db, DatasetOrigin.PROMPT_PROCESSING, self.embargo_butler, datasets
         )
@@ -113,6 +130,21 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             self.assertNotEqual(
                 self.prompt_prep_butler.getURI(nonvisit), self.embargo_butler.getURI(nonvisit)
             )
+
+            # The non-pixel dataset requiring exposure records wasn't
+            # transferred, because the exposure records weren't transferred
+            # yet.  Set up the exposure records, and then it should transfer.
+            await DimensionRecordCopyTask(Exposure, "embargo", "prompt_prep").run(self.context)
+            self.assertEqual(
+                await unembargo_transfer_task.run(self.context),
+                [exposure.id],
+            )
+            self.assertEqual(self.prompt_prep_butler.get(exposure), 1)
+            self.assertEqual(self.embargo_butler.get(exposure), 1)
+            self.assertNotEqual(
+                self.prompt_prep_butler.getURI(exposure), self.embargo_butler.getURI(exposure)
+            )
+
             # Pixel datasets weren't copied yet -- they're still in the embargo
             # period.
             self.assertIsNone(self.prompt_prep_butler.get_dataset(pvi1.id))
@@ -162,6 +194,16 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         with DateTimeSource.mock_current_time(between_visit_time, 80) as time:
             # Embargo period is finished for the first visit, but not the
             # second.
+
+            # We haven't yet transferred the required visit records to the
+            # repository, so we still can't unembargo anything else.
+            self.assertEqual(
+                await unembargo_transfer_task.run(self.context),
+                [],
+            )
+
+            # After transferring the visit records, we can proceed.
+            await DimensionRecordCopyTask(Visit, "embargo", "prompt_prep").run(self.context)
             self.assertEqual(
                 await unembargo_transfer_task.run(self.context),
                 [pvi1.id],

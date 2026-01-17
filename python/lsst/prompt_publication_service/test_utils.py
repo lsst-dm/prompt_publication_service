@@ -53,8 +53,12 @@ def get_path_to_test_data_file(filename: str) -> str:
     return str(data_dir / filename)
 
 
-def load_test_dimension_data(butler: Butler) -> None:
-    butler.import_(filename=get_path_to_test_data_file("embargo_dimensions.yaml"))
+def load_base_dimension_data(butler: Butler) -> None:
+    butler.import_(filename=get_path_to_test_data_file("base_dimensions.yaml"))
+
+
+def load_visit_dimension_data(butler: Butler) -> None:
+    butler.import_(filename=get_path_to_test_data_file("visit_dimensions.yaml"))
 
 
 VISIT_DATASET_TYPE = "preliminary_visit_image"

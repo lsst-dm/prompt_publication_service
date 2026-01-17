@@ -28,7 +28,8 @@ from lsst.prompt_publication_service.schema import Visit, Exposure
 from lsst.prompt_publication_service.test_utils import (
     setup_butler_factory_with_empty_repos,
     create_publication_state_db,
-    load_test_dimension_data,
+    load_base_dimension_data,
+    load_visit_dimension_data,
     VISIT1,
     VISIT2,
     EXPOSURE1,
@@ -40,7 +41,8 @@ class TestDimensionRecordCopy(unittest.IsolatedAsyncioTestCase):
         self.butler_factory = self.enterContext(
             setup_butler_factory_with_empty_repos(["embargo", "prompt_prep", "/repo/main"])
         )
-        load_test_dimension_data(self.butler_factory.create_butler("embargo"))
+        load_base_dimension_data(self.butler_factory.create_butler("embargo"))
+        load_visit_dimension_data(self.butler_factory.create_butler("embargo"))
         self.prompt_prep_butler = self.butler_factory.create_butler("prompt_prep")
         self.repo_main_butler = self.butler_factory.create_butler("/repo/main")
 

@@ -34,7 +34,7 @@ from lsst.daf.butler import DatasetId, LabeledButlerFactory
 
 from ..config import DatasetTypeConfiguration
 from ..database import Database
-from ..schema import Dataset, Visit, DatasetLocationStatus, ButlerRepository
+from ..schema import Dataset, Visit, Exposure, DatasetLocationStatus, ButlerRepository, DimensionRecordStatus
 from ..date_time_source import DateTimeSource
 from .base import TaskContext
 
@@ -159,13 +159,36 @@ class TransferTask:
 _MAX_DATASETS_PER_QUERY = 1_000_000
 
 
+def _create_transfer_lookup_query(
+    source_repository: ButlerRepository, target_repository: ButlerRepository
+) -> Select[tuple[UUID]]:
+    """Returns a SQL query against the Dataset table that finds the dataset
+    UUID of candidates that can be copied from the given source repository to
+    the target.  The Visit and Exposure tables are joined to the
+    resulting query against the Dataset table.
+    """
+    return (
+        select(Dataset.id)
+        .join(Visit, isouter=True)
+        .join(Exposure, isouter=True)
+        .where(
+            Dataset.get_status_column(source_repository) == DatasetLocationStatus.PRESENT,
+            Dataset.get_status_column(target_repository) == DatasetLocationStatus.NEVER_PRESENT,
+            # Make sure any visit or exposure records needed by the dataset have already been loaded
+            # into the target repository.
+            Dataset.visit.is_(None)
+            | (Visit.get_status_column(target_repository) != DimensionRecordStatus.NEVER_PRESENT),
+            Dataset.exposure.is_(None)
+            | (Exposure.get_status_column(target_repository) != DimensionRecordStatus.NEVER_PRESENT),
+        )
+    )
+
+
 async def _find_datasets_to_unembargo(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
     queries: list[Select[tuple[UUID]]] = []
     for group in config.group_by(lambda c: c.embargo_period_hours):
-        query = select(Dataset.id).where(
+        query = _create_transfer_lookup_query("embargo", "prompt_prep").where(
             Dataset.dataset_type.in_(group.dataset_types),
-            Dataset.embargo_status == DatasetLocationStatus.PRESENT,
-            Dataset.prompt_prep_status == DatasetLocationStatus.NEVER_PRESENT,
         )
         embargo_hours = group.key
         if embargo_hours > 0:
@@ -175,7 +198,7 @@ async def _find_datasets_to_unembargo(config: DatasetTypeConfiguration, db: Data
             # with embargo restrictions are planned for publication.  If that
             # changes, this will also need to test against the time from the
             # `Exposure` table.
-            query = query.join(Visit).where(Visit.time < unembargo_time)
+            query = query.where(Visit.time < unembargo_time)
         queries.append(query)
 
     async with db.session() as session:
@@ -201,14 +224,7 @@ unembargo_transfer_task = TransferTask(
 
 async def _find_datasets_to_copy_to_repo_main(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
     async with db.session() as session:
-        query = (
-            select(Dataset.id)
-            .where(
-                Dataset.prompt_prep_status == DatasetLocationStatus.PRESENT,
-                Dataset.repo_main_status == DatasetLocationStatus.NEVER_PRESENT,
-            )
-            .limit(_MAX_DATASETS_PER_QUERY)
-        )
+        query = _create_transfer_lookup_query("prompt_prep", "/repo/main").limit(_MAX_DATASETS_PER_QUERY)
         async with db.session() as session:
             dataset_ids = await session.scalars(query)
             return list(dataset_ids)

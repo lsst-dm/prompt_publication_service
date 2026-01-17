@@ -39,7 +39,8 @@ from lsst.prompt_publication_service.schema import (
 from lsst.prompt_publication_service.test_utils import (
     create_butler_repo,
     create_publication_state_db,
-    load_test_dimension_data,
+    load_base_dimension_data,
+    load_visit_dimension_data,
     register_test_dataset_types,
     EXPOSURE1,
     EXPOSURE2,
@@ -55,7 +56,8 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         repo = self.enterContext(create_butler_repo())
         self.butler = self.enterContext(Butler.from_config(repo, run="run"))
-        load_test_dimension_data(self.butler)
+        load_base_dimension_data(self.butler)
+        load_visit_dimension_data(self.butler)
         register_test_dataset_types(self.butler)
 
     async def asyncSetUp(self) -> None:
