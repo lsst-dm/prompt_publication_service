@@ -174,8 +174,8 @@ def _create_transfer_lookup_query(
         .where(
             Dataset.get_status_column(source_repository) == DatasetLocationStatus.PRESENT,
             Dataset.get_status_column(target_repository) == DatasetLocationStatus.NEVER_PRESENT,
-            # Make sure any visit or exposure records needed by the dataset have already been loaded
-            # into the target repository.
+            # Make sure any visit or exposure records needed by the dataset
+            # have already been loaded into the target repository.
             Dataset.visit.is_(None)
             | (Visit.get_status_column(target_repository) != DimensionRecordStatus.NEVER_PRESENT),
             Dataset.exposure.is_(None)

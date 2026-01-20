@@ -175,7 +175,8 @@ class Visit(DimensionRecordTableMixin, Base):
     __tablename__ = "visit"
 
     butler_dimension = "visit"
-    """Name of the corresponding Butler dimension.  This is not a SQL column."""
+    """Name of the corresponding Butler dimension.  This is not a SQL column.
+    """
 
 
 class Exposure(DimensionRecordTableMixin, Base):
@@ -190,7 +191,8 @@ class Exposure(DimensionRecordTableMixin, Base):
     """
 
     butler_dimension = "exposure"
-    """Name of the corresponding Butler dimension.  This is not a SQL column."""
+    """Name of the corresponding Butler dimension.  This is not a SQL column.
+    """
 
 
 DimensionRecordTable: TypeAlias = type[Visit] | type[Exposure]
