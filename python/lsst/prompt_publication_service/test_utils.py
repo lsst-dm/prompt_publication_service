@@ -39,6 +39,13 @@ def create_butler_repo() -> Iterator[str]:
         yield temp_dir
 
 
+@contextmanager
+def create_butler(run: str) -> Iterator[Butler]:
+    with create_butler_repo() as repo:
+        with Butler.from_config(repo, writeable=True, run=run) as butler:
+            yield butler
+
+
 @asynccontextmanager
 async def create_publication_state_db() -> AsyncIterator[Database]:
     with tempfile.TemporaryDirectory() as temp_dir:
