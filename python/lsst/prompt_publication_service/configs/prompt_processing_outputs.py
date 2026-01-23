@@ -47,6 +47,11 @@ _TIER2_NONPIXEL = DatasetTypeConfigurationItem(
     embargo_period_hours=0, publish_to_public=True, retention_period_days=_TIER2_RETENTION_PERIOD_DAYS
 )
 
+_TIER3_NONPIXEL = DatasetTypeConfigurationItem(
+    embargo_period_hours=0, publish_to_public=True, retention_period_days="forever"
+)
+
+
 _USDF_INTERNAL_NONPIXEL = DatasetTypeConfigurationItem(
     embargo_period_hours=0, publish_to_public=False, retention_period_days=_TIER2_RETENTION_PERIOD_DAYS
 )
@@ -67,12 +72,12 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "dia_forced_source_apdb": _TIER2_NONPIXEL,
             "dia_object_apdb": _TIER2_NONPIXEL,
             "marginal_new_dia_source": _TIER2_NONPIXEL,
-            "ss_source_direct_detector": _TIER2_NONPIXEL,
-            "ss_object_direct_unassociated": _TIER2_NONPIXEL,
-            "ss_object_unassociated_detector": _TIER2_NONPIXEL,
-            "ss_source_detector": _TIER2_NONPIXEL,
             "regionTimeInfo": _TIER2_NONPIXEL,
-            "template_detector": _TIER2_PIXEL,
+            # Tier 3
+            "ss_source_direct_detector": _TIER3_NONPIXEL,
+            "ss_object_direct_unassociated": _TIER3_NONPIXEL,
+            "ss_object_unassociated_detector": _TIER3_NONPIXEL,
+            "ss_source_detector": _TIER3_NONPIXEL,
             # Non-public
             "dia_source_detector": _USDF_INTERNAL_NONPIXEL,
             "dia_source_schema": _USDF_INTERNAL_NONPIXEL,
@@ -83,6 +88,7 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "preloaded_dia_source": _USDF_INTERNAL_NONPIXEL,
             "preloaded_ss_object": _USDF_INTERNAL_NONPIXEL,
             "single_visit_star_schema": _USDF_INTERNAL_NONPIXEL,
+            "template_detector": _USDF_INTERNAL_NONPIXEL,
             # Miscellaneous provenance datasets (config/log/metadata/packages).
             "analyzeAssociateDiaSourceTiming_config": _PROVENANCE,
             "analyzeAssociateDiaSourceTiming_log": _PROVENANCE,
@@ -157,6 +163,11 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "subtractImages_config": _PROVENANCE,
             "subtractImages_log": _PROVENANCE,
             "subtractImages_metadata": _PROVENANCE,
-        }
+        },
+        DatasetOrigin.DAYTIME_AP_CATCHUP: {
+            # Tier 1
+            "preliminary_visit_summary": _TIER1_NONPIXEL,
+            "single_visit_star_reprocessed_footprints": _TIER1_NONPIXEL,
+        },
     }
 )
