@@ -252,9 +252,10 @@ class Dataset(Base):
         ForeignKeyConstraint(["exposure", "instrument"], ["exposure.id", "exposure.instrument"]),
         # For queries trying to determine which datasets need to be transferred
         # from one repository or another, we always have equality constraints
-        # on dataset_type (because rules are defined on a per-dataset-type
-        # basis) and prompt_prep_status (because prompt_prep is the 'central'
-        # repository which is always involved in transfers.)
+        # on dataset_type+origin (because rules are defined on a
+        # per-origin-per-dataset-type basis) and prompt_prep_status (because
+        # prompt_prep is the 'central' repository which is always involved in
+        # transfers.)
         #
         # We have an index for each repository status, to make sure these
         # searches stay fast as the DB grows.  This might be overkill, but I'm
@@ -262,7 +263,7 @@ class Dataset(Base):
         # vs consistency/reliability of Postgres' query planning, so I'm
         # leaning towards the latter.
         *(
-            Index(f"{column}_lookup", column, "prompt_prep_status", "dataset_type")
+            Index(f"dataset_{column}_lookup", column, "prompt_prep_status", "origin", "dataset_type")
             for column in (
                 "embargo_status",
                 "repo_main_status",

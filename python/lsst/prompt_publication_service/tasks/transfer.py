@@ -188,6 +188,7 @@ async def _find_datasets_to_unembargo(config: DatasetTypeConfiguration, db: Data
     queries: list[Select[tuple[UUID]]] = []
     for group in config.group_by(lambda c: c.embargo_period_hours):
         query = _create_transfer_lookup_query("embargo", "prompt_prep").where(
+            Dataset.origin == group.origin,
             Dataset.dataset_type.in_(group.dataset_types),
         )
         embargo_hours = group.key
