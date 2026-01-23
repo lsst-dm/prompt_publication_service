@@ -23,7 +23,7 @@ from enum import IntEnum
 from typing import Any, TypeAlias, Literal
 from uuid import UUID
 from datetime import datetime
-from sqlalchemy import ForeignKeyConstraint, Index
+from sqlalchemy import ForeignKeyConstraint, Index, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 import sqlalchemy.types as types
 
@@ -240,6 +240,14 @@ class Dataset(Base):
     """Exposure ID from the Butler."""
     group: Mapped[str | None]
     """Group ID from the Butler."""
+    butler_data_id: Mapped[dict[str, str | int] | None] = mapped_column(JSON, nullable=True)
+    """The portion of the Butler "required data ID" (metadata primary keys)
+    that is not already captured in instrument/visit/exposure/group, above.
+
+    This is currently unused by this service, but will make it easier to
+    migrate in the future if it turns out that more dimensions require special
+    handling, similar to the ones we capture as proper columns already.
+    """
 
     embargo_status: Mapped[DatasetLocationStatus] = mapped_column(_EnumColumn(DatasetLocationStatus))
     """Status of this dataset in the ``embargo`` Butler repository."""

@@ -212,6 +212,12 @@ def _convert_common_dimension_columns(record: DimensionRecord) -> dict:
 
 
 def _convert_ref_to_dataset_row(ref: DatasetRef, origin: DatasetOrigin) -> dict:
+    # Extract any leftover dimension primary keys that aren't already
+    # represented as one of the columns in the dataset table.
+    butler_data_id = dict(ref.dataId.required)
+    for captured_dimension in ("instrument", "visit", "exposure", "group"):
+        butler_data_id.pop(captured_dimension, None)
+
     return {
         "id": ref.id,
         "origin": origin,
@@ -220,5 +226,6 @@ def _convert_ref_to_dataset_row(ref: DatasetRef, origin: DatasetOrigin) -> dict:
         "visit": ref.dataId.get("visit"),
         "exposure": ref.dataId.get("exposure"),
         "group": ref.dataId.required.get("group"),
+        "butler_data_id": butler_data_id,
         "embargo_status": DatasetLocationStatus.PRESENT,
     }
