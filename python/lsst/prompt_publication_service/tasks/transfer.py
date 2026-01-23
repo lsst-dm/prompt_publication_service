@@ -34,7 +34,15 @@ from lsst.daf.butler import DatasetId, LabeledButlerFactory
 
 from ..config import DatasetTypeConfiguration
 from ..database import Database
-from ..schema import Dataset, Visit, Exposure, DatasetLocationStatus, ButlerRepository, DimensionRecordStatus
+from ..schema import (
+    Dataset,
+    Group,
+    Visit,
+    Exposure,
+    DatasetLocationStatus,
+    ButlerRepository,
+    DimensionRecordStatus,
+)
 from ..date_time_source import DateTimeSource
 from .base import TaskContext
 
@@ -164,13 +172,14 @@ def _create_transfer_lookup_query(
 ) -> Select[tuple[UUID]]:
     """Returns a SQL query against the Dataset table that finds the dataset
     UUID of candidates that can be copied from the given source repository to
-    the target.  The Visit and Exposure tables are joined to the
+    the target.  The Visit, Exposure, and Group tables are joined to the
     resulting query against the Dataset table.
     """
     return (
         select(Dataset.id)
         .join(Visit, isouter=True)
         .join(Exposure, isouter=True)
+        .join(Group, isouter=True)
         .where(
             Dataset.get_status_column(source_repository) == DatasetLocationStatus.PRESENT,
             Dataset.get_status_column(target_repository) == DatasetLocationStatus.NEVER_PRESENT,
@@ -180,6 +189,8 @@ def _create_transfer_lookup_query(
             | (Visit.get_status_column(target_repository) != DimensionRecordStatus.NEVER_PRESENT),
             Dataset.exposure.is_(None)
             | (Exposure.get_status_column(target_repository) != DimensionRecordStatus.NEVER_PRESENT),
+            Dataset.group.is_(None)
+            | (Group.get_status_column(target_repository) != DimensionRecordStatus.NEVER_PRESENT),
         )
     )
 

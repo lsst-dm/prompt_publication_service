@@ -30,7 +30,7 @@ from lsst.daf.butler import Butler, DataCoordinate, DatasetRef, DimensionRecord,
 from lsst.resources import ResourcePath
 
 from .database import Database
-from .schema import Dataset, Visit, DatasetOrigin, DatasetLocationStatus, UnknownDataset, Exposure
+from .schema import Dataset, Group, Visit, DatasetOrigin, DatasetLocationStatus, UnknownDataset, Exposure
 
 _LOG = logging.getLogger(__name__)
 
@@ -122,12 +122,17 @@ async def register_embargo_datasets(
     exposure_records = await _find_matching_dimension_records(source_butler, "exposure", datasets)
     exposure_rows = [_convert_exposure_record_to_exposure_row(record) for record in exposure_records]
 
+    group_ids = _find_matching_data_ids("group", datasets)
+    group_rows = [_convert_group_id_to_group_row(id) for id in group_ids]
+
     dataset_rows = [_convert_ref_to_dataset_row(ref, origin) for ref in datasets]
     async with db.session() as session:
         if visit_rows:
             await session.execute(db.insert_if_not_exists(Visit), visit_rows)
         if exposure_rows:
             await session.execute(db.insert_if_not_exists(Exposure), exposure_rows)
+        if group_rows:
+            await session.execute(db.insert_if_not_exists(Group), group_rows)
         if missing:
             unknown_rows = [{"id": id, "origin": origin, "error": error} for id, error in missing.items()]
             await session.execute(db.insert_if_not_exists(UnknownDataset), unknown_rows)
@@ -136,17 +141,21 @@ async def register_embargo_datasets(
         await session.commit()
 
 
+def _find_matching_data_ids(dimension: str, datasets: list[DatasetRef]) -> set[DataCoordinate]:
+    data_ids: set[DataCoordinate] = set()
+    for ref in datasets:
+        if dimension in ref.datasetType.dimensions.required:
+            data_ids.add(ref.dataId.subset([dimension]))
+    return data_ids
+
+
 async def _find_matching_dimension_records(
     source_butler: Butler, dimension: str, datasets: list[DatasetRef]
 ) -> list[DimensionRecord]:
     """Look up the Butler dimension records for the given ``dimension``,
     associated with the given ``datasets``.
     """
-    data_ids: set[DataCoordinate] = set()
-    for ref in datasets:
-        if dimension in ref.datasetType.dimensions:
-            data_ids.add(ref.dataId.subset([dimension]))
-
+    data_ids = _find_matching_data_ids(dimension, datasets)
     if data_ids:
         return await asyncio.to_thread(_get_dimension_records, source_butler, dimension, data_ids)
     else:
@@ -187,6 +196,13 @@ def _convert_exposure_record_to_exposure_row(record: DimensionRecord) -> dict:
     }
 
 
+def _convert_group_id_to_group_row(id: DataCoordinate) -> dict:
+    return {
+        "id": id["group"],
+        "instrument": id["instrument"],
+    }
+
+
 def _convert_common_dimension_columns(record: DimensionRecord) -> dict:
     return {
         "instrument": record.dataId["instrument"],
@@ -203,5 +219,6 @@ def _convert_ref_to_dataset_row(ref: DatasetRef, origin: DatasetOrigin) -> dict:
         "instrument": ref.dataId.get("instrument"),
         "visit": ref.dataId.get("visit"),
         "exposure": ref.dataId.get("exposure"),
+        "group": ref.dataId.required.get("group"),
         "embargo_status": DatasetLocationStatus.PRESENT,
     }
