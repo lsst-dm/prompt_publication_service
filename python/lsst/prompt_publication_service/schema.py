@@ -106,6 +106,11 @@ class _EnumColumn[T: IntEnum](types.TypeDecorator):
             return None
         return self._enum_type(value)
 
+    def __repr__(self) -> str:
+        # This controls how the column is rendered when alembic is generating
+        # migrations.
+        return "SmallInteger()"
+
 
 class Base(DeclarativeBase):
     """SQLAlchemy ORM root class."""
