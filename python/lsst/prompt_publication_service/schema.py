@@ -132,13 +132,10 @@ def _dimension_status_column(
     return mapped_column(_EnumColumn(DimensionRecordStatus), default=default, index=True)
 
 
-class DimensionRecordTableMixin:
-    """Columns that are used in all tables that track Butler dimension
+class DimensionRecordStatusMixin:
+    """Status columns that are used in all tables that track Butler dimension
     records.
     """
-
-    instrument: Mapped[str] = mapped_column(primary_key=True)
-    """Instrument name from the Butler."""
 
     embargo_status = _dimension_status_column(DimensionRecordStatus.INITIAL)
     """Status of these dimension records in the ``embargo`` Butler
@@ -173,6 +170,8 @@ class DimensionRecordObservationMixin:
 
     id: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
     """Dimension primary key from the Butler (visit or exposure)."""
+    instrument: Mapped[str] = mapped_column(primary_key=True)
+    """Instrument name from the Butler."""
 
     day_obs: Mapped[int] = mapped_column(types.BigInteger)
     """Observation date as stored in the Butler.  Note that this is the local
@@ -183,7 +182,7 @@ class DimensionRecordObservationMixin:
     """Date and time when the visit/exposure ended."""
 
 
-class Visit(DimensionRecordTableMixin, DimensionRecordObservationMixin, Base):
+class Visit(DimensionRecordObservationMixin, DimensionRecordStatusMixin, Base):
     """Table tracking the status of Butler `visit` dimension metadata."""
 
     __tablename__ = "visit"
@@ -193,7 +192,7 @@ class Visit(DimensionRecordTableMixin, DimensionRecordObservationMixin, Base):
     """
 
 
-class Exposure(DimensionRecordTableMixin, DimensionRecordObservationMixin, Base):
+class Exposure(DimensionRecordObservationMixin, DimensionRecordStatusMixin, Base):
     """Table tracking the status of Butler `exposure` dimension metadata."""
 
     __tablename__ = "exposure"
@@ -209,12 +208,15 @@ class Exposure(DimensionRecordTableMixin, DimensionRecordObservationMixin, Base)
     """
 
 
-class Group(DimensionRecordTableMixin, Base):
+class Group(DimensionRecordStatusMixin, Base):
     """Table tracking the status of Butler `group` dimension metadata."""
 
     __tablename__ = "group"
 
     id: Mapped[str] = mapped_column(primary_key=True)
+    """Group ID from the Butler."""
+    instrument: Mapped[str] = mapped_column(primary_key=True)
+    """Instrument name from the Butler."""
 
     butler_dimension = "group"
     """Name of the corresponding Butler dimension.  This is not a SQL column.
