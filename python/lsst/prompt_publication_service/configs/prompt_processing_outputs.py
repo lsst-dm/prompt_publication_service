@@ -56,6 +56,12 @@ _USDF_INTERNAL_NONPIXEL = DatasetTypeConfigurationItem(
     embargo_period_hours=0, publish_to_public=False, retention_period_days=_TIER2_RETENTION_PERIOD_DAYS
 )
 
+_USDF_INTERNAL_PIXEL = DatasetTypeConfigurationItem(
+    embargo_period_hours=_EMBARGO_PERIOD_HOURS,
+    publish_to_public=False,
+    retention_period_days=_TIER2_RETENTION_PERIOD_DAYS,
+)
+
 
 # This configuration is from RFC-1134.
 PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
@@ -88,7 +94,7 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "preloaded_dia_source": _USDF_INTERNAL_NONPIXEL,
             "preloaded_ss_object": _USDF_INTERNAL_NONPIXEL,
             "single_visit_star_schema": _USDF_INTERNAL_NONPIXEL,
-            "template_detector": _USDF_INTERNAL_NONPIXEL,
+            "template_detector": _USDF_INTERNAL_PIXEL,
             # Miscellaneous provenance datasets (config/log/metadata/packages).
             "analyzeAssociateDiaSourceTiming_config": _PROVENANCE,
             "analyzeAssociateDiaSourceTiming_log": _PROVENANCE,
@@ -167,6 +173,7 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
         DatasetOrigin.DAYTIME_AP_CATCHUP: {
             # Tier 1
             "preliminary_visit_summary": _TIER1_NONPIXEL,
+            # This may be replaced by a new dataset type called `ap_source`.
             "single_visit_star_reprocessed_footprints": _TIER1_NONPIXEL,
         },
     }
