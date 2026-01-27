@@ -44,7 +44,7 @@ from ..schema import (
     DimensionRecordStatus,
 )
 from ..date_time_source import DateTimeSource
-from .base import TaskContext
+from .base import TaskContext, TaskRunResult, Task
 
 _LOG = logging.getLogger(__name__)
 
@@ -80,18 +80,21 @@ class _DatasetTransferResult:
     """Datasets that were successfully transferred to the target repository."""
 
 
-class TransferTask:
+class TransferTask(Task):
     def __init__(self, transfer_config: TransferConfig):
         self._config = transfer_config
 
-    async def run(self, ctx: TaskContext) -> list[DatasetId]:
+    async def run(self, ctx: TaskContext) -> TaskRunResult[list[DatasetId]]:
         datasets = await self._config.dataset_lookup_function(ctx.dataset_config, ctx.state_database)
+        if len(datasets) == 0:
+            return TaskRunResult("no-work-found", data=[])
+
         successful_datasets: list[DatasetId] = []
         for batch in batched(datasets, self._config.batch_size):
             result = await asyncio.to_thread(self._transfer_datasets, ctx.butler_factory, batch)
             await self._record_transfer_result(ctx.state_database, result)
             successful_datasets.extend(result.transferred_datasets)
-        return successful_datasets
+        return TaskRunResult("success", data=successful_datasets)
 
     def _transfer_datasets(
         self, butler_factory: LabeledButlerFactory, dataset_ids: Iterable[UUID]

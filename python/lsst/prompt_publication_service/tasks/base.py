@@ -25,6 +25,7 @@ from lsst.daf.butler import LabeledButlerFactory
 
 from ..config import DatasetTypeConfiguration
 from ..database import Database
+from typing import Literal, Protocol, Awaitable
 
 
 @dataclass(frozen=True)
@@ -36,3 +37,16 @@ class TaskContext:
     dataset_config: DatasetTypeConfiguration
     butler_factory: LabeledButlerFactory
     state_database: Database
+
+
+@dataclass(frozen=True)
+class TaskRunResult[_T]:
+    result: Literal["success", "no-work-found"]
+    data: _T
+    """Task-specific information for debugging and unit tests -- not used by
+    main task runner.
+    """
+
+
+class Task[_T](Protocol):
+    def run(self, ctx: TaskContext) -> Awaitable[TaskRunResult[_T]]: ...

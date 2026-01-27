@@ -35,12 +35,12 @@ from ..schema import (
     DimensionRecordRow,
     DimensionRecordStatus,
 )
-from .base import TaskContext
+from .base import TaskContext, Task, TaskRunResult
 
 _LOG = logging.getLogger(__name__)
 
 
-class DimensionRecordCopyTask:
+class DimensionRecordCopyTask(Task):
     """Task for copying dimension records between Butler repositories."""
 
     def __init__(
@@ -53,13 +53,16 @@ class DimensionRecordCopyTask:
         self._source_repository = source_repository
         self._target_repository = target_repository
 
-    async def run(self, context: TaskContext) -> int:
+    async def run(self, context: TaskContext) -> TaskRunResult[int]:
         rows = await self._find_records_to_unembargo(context.state_database)
+        if len(rows) == 0:
+            return TaskRunResult("no-work-found", 0)
+
         batch_size = 5000
         for batch in batched(rows, batch_size):
             await asyncio.to_thread(self._transfer_dimension_records, context.butler_factory, batch)
             await self._record_result(context.state_database, batch)
-        return len(rows)
+        return TaskRunResult("success", len(rows))
 
     async def _find_records_to_unembargo(self, state_database: Database) -> list[DimensionRecordRow]:
         query = (
