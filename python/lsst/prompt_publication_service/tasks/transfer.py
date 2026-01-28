@@ -88,6 +88,11 @@ class TransferTask(Task):
             source_repository=transfer_config.source_repository,
             target_repository=transfer_config.target_repository,
         )
+        # Limit maximum parallelism of batch processing.  Butler also
+        # internally multithreads file transfers, so this is the maximum
+        # parallelism of Butler database operations but the number of
+        # concurrent file transfers is larger.
+        self._concurrency_semaphore = asyncio.BoundedSemaphore(8)
 
     async def run(self, ctx: TaskContext) -> TaskRunResult[list[DatasetId]]:
         datasets = await self._config.dataset_lookup_function(ctx.dataset_config, ctx.state_database)
@@ -95,8 +100,18 @@ class TransferTask(Task):
         if len(datasets) == 0:
             return TaskRunResult("no-work-found", data=[])
 
+        async with asyncio.TaskGroup() as tg:
+            tasks = [
+                tg.create_task(self._process_batch(ctx, batch))
+                for batch in batched(datasets, self._config.batch_size)
+            ]
         successful_datasets: list[DatasetId] = []
-        for batch in batched(datasets, self._config.batch_size):
+        for task in tasks:
+            successful_datasets.extend(task.result())
+        return TaskRunResult("success", data=successful_datasets)
+
+    async def _process_batch(self, ctx: TaskContext, batch: tuple[DatasetId, ...]) -> list[DatasetId]:
+        async with self._concurrency_semaphore:
             self._log.info("starting butler transfer", count=len(batch))
             result = await asyncio.to_thread(self._transfer_datasets, ctx.butler_factory, batch)
             self._log.info(
@@ -106,8 +121,7 @@ class TransferTask(Task):
             )
             await self._record_transfer_result(ctx.state_database, result)
             self._log.info("completed state DB update")
-            successful_datasets.extend(result.transferred_datasets)
-        return TaskRunResult("success", data=successful_datasets)
+            return result.transferred_datasets
 
     def _transfer_datasets(
         self, butler_factory: LabeledButlerFactory, dataset_ids: Iterable[UUID]
@@ -247,7 +261,7 @@ unembargo_transfer_task = TransferTask(
         # File copy can be slow and unreliable, and Butler currently holds DB
         # transactions open during the file transfer process.  So it's best to
         # copy only a handful of files at a time.
-        batch_size=100,
+        batch_size=1000,
         target_time_column="unembargo_time",
     )
 )
