@@ -183,7 +183,7 @@ class DimensionRecordObservationMixin:
     date at the beginning of the observing night, and not necessarily the same
     calendar date as the exposure time below.
     """
-    time: Mapped[datetime | None]
+    time: Mapped[datetime | None] = mapped_column(types.DateTime(timezone=True), nullable=True)
     """Date and time when the visit/exposure ended."""
 
 
@@ -285,7 +285,7 @@ class Dataset(Base):
     RSP production environment.
     """
 
-    unembargo_time: Mapped[datetime | None]
+    unembargo_time: Mapped[datetime | None] = mapped_column(types.DateTime(timezone=True), nullable=True)
     """Time when the dataset was copied out of embargo into the prompt_prep
     Butler repository.
     """
