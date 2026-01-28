@@ -25,6 +25,8 @@ import json
 import tempfile
 import unittest
 
+from structlog.testing import capture_logs
+
 from lsst.daf.butler import Butler
 from lsst.prompt_publication_service.register import register_dataset_batch_file
 from lsst.prompt_publication_service.schema import (
@@ -91,13 +93,13 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
         batch_file = fh.name
 
         async def register_datasets() -> None:
-            with self.assertLogs("lsst.prompt_publication_service.register", level="WARNING") as logged:
+            with capture_logs() as logs:
                 await register_dataset_batch_file(
                     self.db, DatasetOrigin.PROMPT_PROCESSING, self.butler, batch_file
                 )
-            self.assertEqual(len(logged.output), 1)
-            self.assertIn("not found", logged.output[0])
-            self.assertIn("f3b0055f-7375-4154-b1e4-922656c0af44", logged.output[0])
+            self.assertEqual(len(logs), 1)
+            self.assertEqual(logs[0]["log_level"], "warning")
+            self.assertIn("f3b0055f-7375-4154-b1e4-922656c0af44", logs[0]["missing_ids"])
 
         async def check_datasets() -> None:
             async with self.db.session() as session:

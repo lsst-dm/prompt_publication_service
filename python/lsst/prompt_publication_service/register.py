@@ -23,8 +23,8 @@ import asyncio
 import datetime
 from uuid import UUID
 
-import logging
 import pydantic
+from structlog.stdlib import get_logger
 
 from lsst.daf.butler import Butler, DataCoordinate, DatasetRef, DimensionRecord, Timespan
 from lsst.resources import ResourcePath
@@ -32,7 +32,7 @@ from lsst.resources import ResourcePath
 from .database import Database
 from .schema import Dataset, Group, Visit, DatasetOrigin, DatasetLocationStatus, UnknownDataset, Exposure
 
-_LOG = logging.getLogger(__name__)
+_LOG = get_logger()
 
 
 class DatasetBatch(pydantic.BaseModel):
@@ -67,15 +67,17 @@ async def register_dataset_batch_file(
     batch_file
         Path to the JSON file containing the list of datasets to be loaded.
     """
+    log = _LOG.bind(batch_file=str(batch_file))
     json = await asyncio.to_thread(lambda: ResourcePath(batch_file).read())
     batch = DatasetBatch.model_validate_json(json)
     refs = await asyncio.to_thread(source_butler.get_many_datasets, batch.datasets)
     missing = None
     missing_ids = set(batch.datasets) - set(ref.id for ref in refs)
     if missing_ids:
-        _LOG.warning(
-            f"Dataset batch {batch.batch_id}"
-            f" included datasets not found in the Butler repository: {missing_ids}"
+        log.warning(
+            "Dataset batch included datasets not found in the Butler repository",
+            batch_id=batch.batch_id,
+            missing_ids=[str(id) for id in missing_ids],
         )
         error_message = f"Dataset not found in Butler, from batch '{batch.batch_id}'"
         missing = {id: error_message for id in missing_ids}
