@@ -26,16 +26,21 @@ from lsst.daf.butler import LabeledButlerFactory, ButlerRepoIndex
 
 from ..configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from ..database import Database
-from ..tasks.transfer import unembargo_transfer_task
+from ..tasks.base import TaskContext
+from ..tasks.all import ALL_TASKS
+from ..run_tasks import run_tasks
 from ._utils import split_dataset_types_argument
 
 
 @click.command()
-@click.argument("database_uri")
-@click.argument("source_butler_repo")
-@click.argument("target_butler_repo")
+@click.option("--database-uri", required=True)
+@click.option("--embargo-repo", default="embargo")
+@click.option("--main-repo", default="/repo/main")
+@click.option("--prompt-prep-repo", default="prompt_prep")
 @click.option("--types", default="")
-def run_unembargo(database_uri: str, source_butler_repo: str, target_butler_repo: str, types: str) -> None:
+def run_all_tasks(
+    database_uri: str, embargo_repo: str, main_repo: str, prompt_prep_repo: str, types: str
+) -> None:
     config = PROMPT_PROCESSING_OUTPUT_CONFIG
     if types:
         dataset_types = split_dataset_types_argument(types)
@@ -43,15 +48,17 @@ def run_unembargo(database_uri: str, source_butler_repo: str, target_butler_repo
 
     butler_factory = LabeledButlerFactory(
         {
-            "embargo": _lookup_butler_repo_path(source_butler_repo),
-            "prompt_prep": _lookup_butler_repo_path(target_butler_repo),
+            "embargo": _lookup_butler_repo_path(embargo_repo),
+            "prompt_prep": _lookup_butler_repo_path(prompt_prep_repo),
+            "/repo/main": _lookup_butler_repo_path(main_repo),
         },
         writeable=True,
     )
 
     async def run():
         async with Database(database_uri) as db:
-            await unembargo_transfer_task.run(config, butler_factory, db)
+            context = TaskContext(config, butler_factory, db)
+            await run_tasks(context, ALL_TASKS)
 
     asyncio.run(run())
 
@@ -64,4 +71,4 @@ def _lookup_butler_repo_path(repo_name_or_path: str) -> str:
 
 
 if __name__ == "__main__":
-    run_unembargo()
+    run_all_tasks()
