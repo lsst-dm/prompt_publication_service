@@ -21,15 +21,18 @@
 
 import tempfile
 from collections.abc import AsyncIterator, Iterator, Iterable
-from contextlib import contextmanager, asynccontextmanager, ExitStack
+from contextlib import contextmanager, asynccontextmanager, AsyncExitStack
 from dataclasses import dataclass
 import datetime
 from pathlib import Path
 
 from lsst.daf.butler import Butler, DatasetType, LabeledButlerFactory
+from .configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
+from .tasks.process_pool import initialize_worker_pool
 
 from .database import Database
 from .schema import ButlerRepository
+from .tasks.base import TaskContext
 
 
 @contextmanager
@@ -107,11 +110,18 @@ def register_test_dataset_types(butler: Butler) -> None:
     )
 
 
-@contextmanager
-def setup_butler_factory_with_empty_repos(
+@asynccontextmanager
+async def setup_task_context_with_empty_repos(
     repos: Iterable[ButlerRepository],
-) -> Iterator[LabeledButlerFactory]:
-    with ExitStack() as exit_stack:
+) -> AsyncIterator[TaskContext]:
+    async with AsyncExitStack() as exit_stack:
         repo_paths: dict[str, str] = {repo: exit_stack.enter_context(create_butler_repo()) for repo in repos}
-        with LabeledButlerFactory(repo_paths, writeable=True) as factory:
-            yield factory
+        butler_factory = exit_stack.enter_context(LabeledButlerFactory(repo_paths, writeable=True))
+        worker_pool = exit_stack.enter_context(initialize_worker_pool(repo_paths))
+        state_database = await exit_stack.enter_async_context(create_publication_state_db())
+        yield TaskContext(
+            dataset_config=PROMPT_PROCESSING_OUTPUT_CONFIG,
+            butler_factory=butler_factory,
+            state_database=state_database,
+            worker_pool=worker_pool,
+        )

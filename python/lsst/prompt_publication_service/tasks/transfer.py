@@ -25,11 +25,13 @@ from dataclasses import dataclass
 from datetime import timedelta
 from itertools import batched
 from typing import Literal, Callable, Awaitable
-
 from uuid import UUID
-from sqlalchemy import select, union_all, Select, update
 
-from lsst.daf.butler import DatasetId, LabeledButlerFactory
+from sqlalchemy import select, union_all, Select, update
+from structlog.stdlib import BoundLogger
+
+from lsst.daf.butler import DatasetId
+from .process_pool import WorkerTaskContext
 
 from ..config import DatasetTypeConfiguration
 from ..database import Database
@@ -92,7 +94,7 @@ class TransferTask(Task):
         # internally multithreads file transfers, so this is the maximum
         # parallelism of Butler database operations but the number of
         # concurrent file transfers is larger.
-        self._concurrency_semaphore = asyncio.BoundedSemaphore(8)
+        self._concurrency_semaphore = asyncio.BoundedSemaphore(16)
 
     async def run(self, ctx: TaskContext) -> TaskRunResult[list[DatasetId]]:
         datasets = await self._config.dataset_lookup_function(ctx.dataset_config, ctx.state_database)
@@ -113,7 +115,14 @@ class TransferTask(Task):
     async def _process_batch(self, ctx: TaskContext, batch: tuple[DatasetId, ...]) -> list[DatasetId]:
         async with self._concurrency_semaphore:
             self._log.info("starting butler transfer", count=len(batch))
-            result = await asyncio.to_thread(self._transfer_datasets, ctx.butler_factory, batch)
+            result = await ctx.worker_pool.run(
+                _transfer_datasets,
+                log=self._log,
+                source_repository=self._config.source_repository,
+                target_repository=self._config.target_repository,
+                transfer_mode=self._config.transfer_mode,
+                dataset_ids=batch,
+            )
             self._log.info(
                 "completed butler transfer",
                 transferred=len(result.transferred_datasets),
@@ -122,41 +131,6 @@ class TransferTask(Task):
             await self._record_transfer_result(ctx.state_database, result)
             self._log.info("completed state DB update")
             return result.transferred_datasets
-
-    def _transfer_datasets(
-        self, butler_factory: LabeledButlerFactory, dataset_ids: Iterable[UUID]
-    ) -> _DatasetTransferResult:
-        dataset_ids = frozenset(dataset_ids)
-        with (
-            butler_factory.create_butler(label=self._config.source_repository) as source_butler,
-            butler_factory.create_butler(label=self._config.target_repository) as target_butler,
-        ):
-            datasets = source_butler.get_many_datasets(dataset_ids)
-            found_ids = frozenset(ref.id for ref in datasets)
-            # Dataset IDs that are not known to the Butler at all.
-            missing_ids = dataset_ids - found_ids
-            if missing_ids:
-                self._log.warning("Datasets were not found in Butler registry", missing_ids=missing_ids)
-
-            completed_refs = target_butler.transfer_from(
-                source_butler, datasets, self._config.transfer_mode, register_dataset_types=True
-            )
-            completed_ids = frozenset(ref.id for ref in completed_refs)
-
-            # Dataset IDs that are known to the Butler "registry", but for
-            # which there are no corresponding file records in the Butler
-            # "datastore".
-            missing_datastore_entries = found_ids - completed_ids
-            if missing_datastore_entries:
-                self._log.warning(
-                    "Datasets were not found in Butler datastore",
-                    missing_datastore_entries=missing_datastore_entries,
-                )
-
-            return _DatasetTransferResult(
-                missing_datasets=list(missing_ids.union(missing_datastore_entries)),
-                transferred_datasets=list(completed_ids),
-            )
 
     async def _record_transfer_result(
         self,
@@ -195,6 +169,50 @@ class TransferTask(Task):
                 ],
             )
             await session.commit()
+
+
+def _transfer_datasets(
+    context: WorkerTaskContext,
+    log: BoundLogger,
+    source_repository: ButlerRepository,
+    target_repository: ButlerRepository,
+    transfer_mode: str,
+    dataset_ids: Iterable[UUID],
+) -> _DatasetTransferResult:
+    """Transfer the given datasets from one Butler repository to another.  This
+    function will be run in another process, via ProcessPoolExecutor.
+    """
+    dataset_ids = frozenset(dataset_ids)
+    with (
+        context.butler_factory.create_butler(source_repository) as source_butler,
+        context.butler_factory.create_butler(target_repository) as target_butler,
+    ):
+        datasets = source_butler.get_many_datasets(dataset_ids)
+        found_ids = frozenset(ref.id for ref in datasets)
+        # Dataset IDs that are not known to the Butler at all.
+        missing_ids = dataset_ids - found_ids
+        if missing_ids:
+            log.warning("Datasets were not found in Butler registry", missing_ids=missing_ids)
+
+        completed_refs = target_butler.transfer_from(
+            source_butler, datasets, transfer_mode, register_dataset_types=True
+        )
+        completed_ids = frozenset(ref.id for ref in completed_refs)
+
+        # Dataset IDs that are known to the Butler "registry", but for
+        # which there are no corresponding file records in the Butler
+        # "datastore".
+        missing_datastore_entries = found_ids - completed_ids
+        if missing_datastore_entries:
+            log.warning(
+                "Datasets were not found in Butler datastore",
+                missing_datastore_entries=missing_datastore_entries,
+            )
+
+        return _DatasetTransferResult(
+            missing_datasets=list(missing_ids.union(missing_datastore_entries)),
+            transferred_datasets=list(completed_ids),
+        )
 
 
 _MAX_DATASETS_PER_QUERY = 1_000_000
@@ -261,7 +279,7 @@ unembargo_transfer_task = TransferTask(
         # File copy can be slow and unreliable, and Butler currently holds DB
         # transactions open during the file transfer process.  So it's best to
         # copy only a handful of files at a time.
-        batch_size=1000,
+        batch_size=100,
         target_time_column="unembargo_time",
     )
 )

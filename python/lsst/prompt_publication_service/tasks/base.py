@@ -20,12 +20,13 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from dataclasses import dataclass
+from typing import Literal, Protocol, Awaitable
 
 from lsst.daf.butler import LabeledButlerFactory
 
 from ..config import DatasetTypeConfiguration
 from ..database import Database
-from typing import Literal, Protocol, Awaitable
+from .process_pool import WorkerPool
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class TaskContext:
     dataset_config: DatasetTypeConfiguration
     butler_factory: LabeledButlerFactory
     state_database: Database
+    worker_pool: WorkerPool
 
 
 @dataclass(frozen=True)

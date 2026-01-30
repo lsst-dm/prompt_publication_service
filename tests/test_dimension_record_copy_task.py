@@ -21,13 +21,10 @@
 
 import unittest
 
-from lsst.prompt_publication_service.configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
-from lsst.prompt_publication_service.tasks.base import TaskContext
 from lsst.prompt_publication_service.tasks.dimension_record_copy import DimensionRecordCopyTask
 from lsst.prompt_publication_service.schema import Visit, Exposure
 from lsst.prompt_publication_service.test_utils import (
-    setup_butler_factory_with_empty_repos,
-    create_publication_state_db,
+    setup_task_context_with_empty_repos,
     load_base_dimension_data,
     load_visit_dimension_data,
     VISIT1,
@@ -37,22 +34,16 @@ from lsst.prompt_publication_service.test_utils import (
 
 
 class TestDimensionRecordCopy(unittest.IsolatedAsyncioTestCase):
-    def setUp(self) -> None:
-        self.butler_factory = self.enterContext(
-            setup_butler_factory_with_empty_repos(["embargo", "prompt_prep", "/repo/main"])
+    async def asyncSetUp(self) -> None:
+        self.context = await self.enterAsyncContext(
+            setup_task_context_with_empty_repos(["embargo", "prompt_prep", "/repo/main"])
         )
+        self.butler_factory = self.context.butler_factory
+        self.state_db = self.context.state_database
         load_base_dimension_data(self.butler_factory.create_butler("embargo"))
         load_visit_dimension_data(self.butler_factory.create_butler("embargo"))
         self.prompt_prep_butler = self.butler_factory.create_butler("prompt_prep")
         self.repo_main_butler = self.butler_factory.create_butler("/repo/main")
-
-    async def asyncSetUp(self) -> None:
-        self.state_db = await self.enterAsyncContext(create_publication_state_db())
-        self.context = TaskContext(
-            dataset_config=PROMPT_PROCESSING_OUTPUT_CONFIG,
-            butler_factory=self.butler_factory,
-            state_database=self.state_db,
-        )
 
     async def test_dimension_record_copy_visit(self) -> None:
         async with self.state_db.session() as session:
