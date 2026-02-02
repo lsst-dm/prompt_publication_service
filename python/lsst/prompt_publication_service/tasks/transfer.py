@@ -58,7 +58,7 @@ class TransferConfig:
     """
     target_repository: ButlerRepository
     """Label of the Butler repository that datasets will be transferred to."""
-    transfer_mode: Literal["copy", "hardlink"]
+    transfer_mode: Literal["copy", "unsafe_direct"]
     """Butler transfer mode, see `lsst.daf.butler.Butler.transfer_from`."""
     dataset_lookup_function: Callable[[DatasetTypeConfiguration, Database], Awaitable[list[DatasetId]]]
     """Function that will be called to find the UUIDs of the datasets that
@@ -66,6 +66,8 @@ class TransferConfig:
     """
     batch_size: int
     """Maximum number of datasets to transfer in a single batch."""
+    max_concurrency: int
+    """Maximum number of processes to execute in parallel to run this task."""
     target_time_column: str | None
     """Column name in the Dataset table containing the time associated with
     this transfer.  If not `None, this will be set to the current time when a
@@ -93,7 +95,7 @@ class TransferTask(Task):
         # internally multithreads file transfers, so this is the maximum
         # parallelism of Butler database operations but the number of
         # concurrent file transfers is larger.
-        self._concurrency_semaphore = asyncio.BoundedSemaphore(16)
+        self._concurrency_semaphore = asyncio.BoundedSemaphore(self._config.max_concurrency)
 
     async def run(self, ctx: TaskContext) -> TaskRunResult[list[DatasetId]]:
         datasets = await self._config.dataset_lookup_function(ctx.dataset_config, ctx.state_database)
@@ -282,6 +284,7 @@ unembargo_transfer_task = TransferTask(
         # transactions open during the file transfer process.  So it's best to
         # copy only a handful of files at a time.
         batch_size=100,
+        max_concurrency=16,
         target_time_column="unembargo_time",
     )
 )
@@ -299,9 +302,10 @@ repo_main_transfer_task = TransferTask(
     TransferConfig(
         source_repository="prompt_prep",
         target_repository="/repo/main",
-        transfer_mode="hardlink",
+        transfer_mode="unsafe_direct",
         dataset_lookup_function=_find_datasets_to_copy_to_repo_main,
-        batch_size=10000,
+        batch_size=20000,
+        max_concurrency=2,
         target_time_column=None,
     )
 )
