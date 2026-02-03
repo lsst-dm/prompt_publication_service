@@ -9,6 +9,9 @@ exclude = [
     "doc/"
 ]
 
+[tool.ruff.lint]
+ignore = []
+
 [tool.ruff.lint.isort]
 known-first-party = ["lsst"]
 
