@@ -22,11 +22,11 @@
 import asyncio
 
 import click
-from lsst.daf.butler import Butler
+from lsst.daf.butler import LabeledButlerFactory, ButlerRepoIndex
 
 from ..configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from ..database import Database
-from ..tasks.transfer import unembargo_datasets
+from ..tasks.transfer import unembargo_transfer_task
 from ._utils import split_dataset_types_argument
 
 
@@ -41,14 +41,26 @@ def run_unembargo(database_uri: str, source_butler_repo: str, target_butler_repo
         dataset_types = split_dataset_types_argument(types)
         config = config.subset(dataset_types)
 
-    source_butler = Butler.from_config(source_butler_repo)
-    target_butler = Butler.from_config(target_butler_repo, writeable=True)
+    butler_factory = LabeledButlerFactory(
+        {
+            "embargo": _lookup_butler_repo_path(source_butler_repo),
+            "prompt_prep": _lookup_butler_repo_path(target_butler_repo),
+        },
+        writeable=True,
+    )
 
     async def run():
         async with Database(database_uri) as db:
-            await unembargo_datasets(config, source_butler, target_butler, db)
+            await unembargo_transfer_task.run(config, butler_factory, db)
 
     asyncio.run(run())
+
+
+def _lookup_butler_repo_path(repo_name_or_path: str) -> str:
+    if repo_name_or_path in ButlerRepoIndex.get_known_repos():
+        return str(ButlerRepoIndex.get_repo_uri(repo_name_or_path))
+    else:
+        return repo_name_or_path
 
 
 if __name__ == "__main__":
