@@ -177,6 +177,11 @@ async def _find_datasets_to_unembargo(config: DatasetTypeConfiguration, db: Data
         embargo_hours = group.key
         if embargo_hours > 0:
             unembargo_time = DateTimeSource.now() - timedelta(hours=embargo_hours)
+            # Note: this will not find datasets that are tracked by `exposure`
+            # instead of `visit`.  At the time of writing no exposure datasets
+            # with embargo restrictions are planned for publication.  If that
+            # changes, this will also need to test against the time from the
+            # `Exposure` table.
             query = query.join(Visit).where(Visit.time < unembargo_time)
         queries.append(query)
 

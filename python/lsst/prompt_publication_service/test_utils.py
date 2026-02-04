@@ -58,16 +58,23 @@ def load_test_dimension_data(butler: Butler) -> None:
 
 VISIT_DATASET_TYPE = "preliminary_visit_image"
 NONVISIT_DATASET_TYPE = "regionTimeInfo"
+EXPOSURE_DATASET_TYPE = "isr_log"
 
 
 @dataclass(frozen=True)
-class TestVisit:
+class TestVisitOrExposure:
     id: int
     time: datetime.datetime
 
 
-VISIT1 = TestVisit(2025120200439, datetime.datetime(2025, 12, 3, 7, 59, 1, 355000))
-VISIT2 = TestVisit(2025120200440, datetime.datetime(2025, 12, 3, 8, 0, 27, 811000))
+VISIT1 = TestVisitOrExposure(2025120200439, datetime.datetime(2025, 12, 3, 7, 59, 1, 355000))
+VISIT2 = TestVisitOrExposure(2025120200440, datetime.datetime(2025, 12, 3, 8, 0, 27, 811000))
+# At present, exposures usually have the same IDs and some other data as their
+# corresponding visits.
+# However, it is possible to have an exposure for which no corresponding visit
+# exists.
+EXPOSURE1 = VISIT1
+EXPOSURE2 = VISIT2
 
 
 def register_test_dataset_types(butler: Butler) -> None:
@@ -75,7 +82,12 @@ def register_test_dataset_types(butler: Butler) -> None:
     butler.registry.registerDatasetType(
         DatasetType(VISIT_DATASET_TYPE, butler.dimensions.conform(["visit", "detector"]), "int")
     )
-    # And one without a visit dimension.
+    butler.registry.registerDatasetType(
+        DatasetType(
+            EXPOSURE_DATASET_TYPE, butler.dimensions.conform(["instrument", "detector", "exposure"]), "int"
+        ),
+    )
+    # And one with no visit or exposure dimensions.
     butler.registry.registerDatasetType(
         DatasetType(
             NONVISIT_DATASET_TYPE, butler.dimensions.conform(["instrument", "detector", "group"]), "int"
