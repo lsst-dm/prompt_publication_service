@@ -1,3 +1,4 @@
+aiokafka
 aiosqlite
 click
 sqlalchemy
