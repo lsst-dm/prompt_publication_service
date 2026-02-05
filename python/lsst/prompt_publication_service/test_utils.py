@@ -20,15 +20,16 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import tempfile
-from collections.abc import AsyncIterator, Iterator
-from contextlib import contextmanager, asynccontextmanager
+from collections.abc import AsyncIterator, Iterator, Iterable
+from contextlib import contextmanager, asynccontextmanager, ExitStack
 from dataclasses import dataclass
 import datetime
 from pathlib import Path
 
-from lsst.daf.butler import Butler, DatasetType
+from lsst.daf.butler import Butler, DatasetType, LabeledButlerFactory
 
-from lsst.prompt_publication_service.database import Database
+from .database import Database
+from .schema import ButlerRepository
 
 
 @contextmanager
@@ -52,8 +53,12 @@ def get_path_to_test_data_file(filename: str) -> str:
     return str(data_dir / filename)
 
 
-def load_test_dimension_data(butler: Butler) -> None:
-    butler.import_(filename=get_path_to_test_data_file("embargo_dimensions.yaml"))
+def load_base_dimension_data(butler: Butler) -> None:
+    butler.import_(filename=get_path_to_test_data_file("base_dimensions.yaml"))
+
+
+def load_visit_dimension_data(butler: Butler) -> None:
+    butler.import_(filename=get_path_to_test_data_file("visit_dimensions.yaml"))
 
 
 VISIT_DATASET_TYPE = "preliminary_visit_image"
@@ -93,3 +98,13 @@ def register_test_dataset_types(butler: Butler) -> None:
             NONVISIT_DATASET_TYPE, butler.dimensions.conform(["instrument", "detector", "group"]), "int"
         )
     )
+
+
+@contextmanager
+def setup_butler_factory_with_empty_repos(
+    repos: Iterable[ButlerRepository],
+) -> Iterator[LabeledButlerFactory]:
+    with ExitStack() as exit_stack:
+        repo_paths: dict[str, str] = {repo: exit_stack.enter_context(create_butler_repo()) for repo in repos}
+        with LabeledButlerFactory(repo_paths, writeable=True) as factory:
+            yield factory

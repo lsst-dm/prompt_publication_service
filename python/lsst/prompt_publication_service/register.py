@@ -169,12 +169,7 @@ def _convert_butler_timespan_to_datetime(timespan: Timespan | None) -> datetime.
 
 
 def _convert_visit_record_to_visit_row(record: DimensionRecord) -> dict:
-    return {
-        "instrument": record.dataId["instrument"],
-        "visit": record.dataId["visit"],
-        "day_obs": record.get("day_obs"),
-        "time": _convert_butler_timespan_to_datetime(record.timespan),
-    }
+    return {"id": record.dataId["visit"], **_convert_common_dimension_columns(record)}
 
 
 def _convert_exposure_record_to_exposure_row(record: DimensionRecord) -> dict:
@@ -186,9 +181,15 @@ def _convert_exposure_record_to_exposure_row(record: DimensionRecord) -> dict:
         can_see_sky = True
 
     return {
-        "instrument": record.dataId["instrument"],
-        "exposure": record.dataId["exposure"],
+        "id": record.dataId["exposure"],
         "can_see_sky": can_see_sky,
+        **_convert_common_dimension_columns(record),
+    }
+
+
+def _convert_common_dimension_columns(record: DimensionRecord) -> dict:
+    return {
+        "instrument": record.dataId["instrument"],
         "day_obs": record.get("day_obs"),
         "time": _convert_butler_timespan_to_datetime(record.timespan),
     }

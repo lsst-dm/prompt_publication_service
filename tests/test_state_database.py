@@ -33,12 +33,14 @@ from lsst.prompt_publication_service.schema import (
     Exposure,
     Visit,
     DatasetLocationStatus,
+    DimensionRecordStatus,
     UnknownDataset,
 )
 from lsst.prompt_publication_service.test_utils import (
     create_butler_repo,
     create_publication_state_db,
-    load_test_dimension_data,
+    load_base_dimension_data,
+    load_visit_dimension_data,
     register_test_dataset_types,
     EXPOSURE1,
     EXPOSURE2,
@@ -54,7 +56,8 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         repo = self.enterContext(create_butler_repo())
         self.butler = self.enterContext(Butler.from_config(repo, run="run"))
-        load_test_dimension_data(self.butler)
+        load_base_dimension_data(self.butler)
+        load_visit_dimension_data(self.butler)
         register_test_dataset_types(self.butler)
 
     async def asyncSetUp(self) -> None:
@@ -186,38 +189,49 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
         async with self.db.session() as session:
             visits = list(await session.scalars(select(Visit)))
-            visits.sort(key=lambda visit: visit.visit)
+            visits.sort(key=lambda visit: visit.id)
+
+        def _assert_initial_dimension_status_values(row: Visit | Exposure) -> None:
+            self.assertIs(row.embargo_status, DimensionRecordStatus.INITIAL)
+            self.assertIs(row.prompt_prep_status, DimensionRecordStatus.NEVER_PRESENT)
+            self.assertIs(row.repo_main_status, DimensionRecordStatus.NEVER_PRESENT)
+            self.assertIs(row.google_int_status, DimensionRecordStatus.NEVER_PRESENT)
+            self.assertIs(row.google_prod_status, DimensionRecordStatus.NEVER_PRESENT)
 
         self.assertEqual(len(visits), 2)
 
-        self.assertEqual(visits[0].visit, VISIT1.id)
+        self.assertEqual(visits[0].id, VISIT1.id)
         self.assertEqual(visits[0].instrument, "LSSTCam")
         self.assertEqual(visits[0].day_obs, 20251202)
         self.assertEqual(visits[0].time, VISIT1.time)
+        _assert_initial_dimension_status_values(visits[0])
 
-        self.assertEqual(visits[1].visit, VISIT2.id)
+        self.assertEqual(visits[1].id, VISIT2.id)
         self.assertEqual(visits[1].instrument, "LSSTCam")
         self.assertEqual(visits[0].day_obs, 20251202)
         self.assertEqual(visits[1].time, VISIT2.time)
+        _assert_initial_dimension_status_values(visits[1])
 
         async with self.db.session() as session:
             exposures = list(await session.scalars(select(Exposure)))
-            exposures.sort(key=lambda exposure: exposure.exposure)
+            exposures.sort(key=lambda exposure: exposure.id)
 
         self.assertEqual(len(exposures), 2)
 
-        self.assertEqual(exposures[0].exposure, EXPOSURE1.id)
+        self.assertEqual(exposures[0].id, EXPOSURE1.id)
         self.assertEqual(exposures[0].instrument, "LSSTCam")
         self.assertEqual(exposures[0].day_obs, 20251202)
         self.assertEqual(exposures[0].time, EXPOSURE1.time)
         self.assertTrue(exposures[0].can_see_sky)
+        _assert_initial_dimension_status_values(exposures[0])
 
-        self.assertEqual(exposures[1].exposure, EXPOSURE2.id)
+        self.assertEqual(exposures[1].id, EXPOSURE2.id)
         self.assertEqual(exposures[1].instrument, "LSSTCam")
         self.assertEqual(exposures[1].day_obs, 20251202)
         self.assertEqual(exposures[1].time, EXPOSURE2.time)
         # Note -- this checks an edge case where the input can_see_sky is null.
         self.assertTrue(exposures[1].can_see_sky)
+        _assert_initial_dimension_status_values(exposures[1])
 
         # Dataset registration is idempotent.
         await register_datasets()

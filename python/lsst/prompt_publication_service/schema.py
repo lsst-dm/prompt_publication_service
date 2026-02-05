@@ -20,7 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from enum import IntEnum
-from typing import Any
+from typing import Any, TypeAlias, Literal
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy import ForeignKeyConstraint, Index
@@ -58,6 +58,26 @@ class DatasetLocationStatus(IntEnum):
     """
 
 
+class DimensionRecordStatus(IntEnum):
+    """Enum representing the status of a set of dimension metadata records in a
+    given repository.
+    """
+
+    # These integer values are persisted in the database -- do not re-use
+    # an integer value when making changes.
+
+    NEVER_PRESENT = 0
+    """The dimension records have never been set up in this location."""
+    INITIAL = 1
+    """The dimension records in this location are based on the initial
+    values read from the raw images.
+    """
+    REVISED = 2
+    """The dimension records in this location have been updated with revised
+    values from `visit_geometry` datasets.
+    """
+
+
 class _EnumColumn[T: IntEnum](types.TypeDecorator):
     """SQLAlchemy column type for storing an ``IntEnum`` value in the DB as a
     SMALLINT value.
@@ -87,45 +107,96 @@ class Base(DeclarativeBase):
     pass
 
 
-class Visit(Base):
+ButlerRepository: TypeAlias = Literal[
+    "embargo", "prompt_prep", "/repo/main", "prompt_google_int", "prompt_google_prod"
+]
+
+_butler_repository_to_status_column: dict[ButlerRepository, str] = {
+    "embargo": "embargo_status",
+    "prompt_prep": "prompt_prep_status",
+    "/repo/main": "repo_main_status",
+    "prompt_google_int": "google_int_status",
+    "prompt_google_prod": "google_prod_status",
+}
+
+
+def _dimension_status_column(
+    default: DimensionRecordStatus = DimensionRecordStatus.NEVER_PRESENT,
+) -> Mapped[DimensionRecordStatus]:
+    return mapped_column(_EnumColumn(DimensionRecordStatus), default=default, index=True)
+
+
+class DimensionRecordTableMixin:
+    """Columns that are used in both the `Visit` and `Exposure tables."""
+
+    id: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
+    """Dimension primary key from the Butler (visit or exposure)."""
+    instrument: Mapped[str] = mapped_column(primary_key=True)
+    """Instrument name from the Butler."""
+    day_obs: Mapped[int] = mapped_column(types.BigInteger)
+    """Observation date as stored in the Butler.  Note that this is the local
+    date at the beginning of the observing night, and not necessarily the same
+    calendar date as the exposure time below.
+    """
+    time: Mapped[datetime | None]
+    """Date and time when the visit/exposure ended."""
+
+    embargo_status = _dimension_status_column(DimensionRecordStatus.INITIAL)
+    """Status of these dimension records in the ``embargo`` Butler
+    repository."""
+    prompt_prep_status = _dimension_status_column()
+    """Status of these dimension records in the ``prompt_prep`` Butler
+    repository."""
+    repo_main_status = _dimension_status_column()
+    """Status of these dimension records in the ``/repo/main`` Butler
+    repository."""
+    google_int_status = _dimension_status_column()
+    """Status of these dimension records in the ``prompt`` Butler repository on
+    the Google RSP integration testing environment.  """
+    google_prod_status = _dimension_status_column()
+    """Status of these dimension records in the ``prompt`` Butler repository on
+    the Google RSP production environment.  """
+
+    @classmethod
+    def get_status_column(cls, repository: ButlerRepository) -> Mapped[DimensionRecordStatus]:
+        return getattr(cls, cls.get_status_column_name(repository))
+
+    def set_status_column(self, repository: ButlerRepository, status: DimensionRecordStatus) -> None:
+        setattr(self, self.get_status_column_name(repository), status)
+
+    @classmethod
+    def get_status_column_name(cls, repository: ButlerRepository) -> str:
+        return _butler_repository_to_status_column[repository]
+
+
+class Visit(DimensionRecordTableMixin, Base):
     """Table tracking the status of Butler `visit` dimension metadata."""
 
     __tablename__ = "visit"
 
-    visit: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
-    """Visit ID from the Butler."""
-    instrument: Mapped[str] = mapped_column(primary_key=True)
-    """Instrument name from the Butler."""
-    day_obs: Mapped[int] = mapped_column(types.BigInteger)
-    """Observation date as stored in the Butler.  Note that this is the local
-    date at the beginning of the observing night, and not necessarily the same
-    calendar date as the exposure time below.
+    butler_dimension = "visit"
+    """Name of the corresponding Butler dimension.  This is not a SQL column.
     """
-    time: Mapped[datetime | None]
-    """Date and time when the visit ended."""
 
 
-class Exposure(Base):
+class Exposure(DimensionRecordTableMixin, Base):
     """Table tracking the status of Butler `exposure` dimension metadata."""
 
     __tablename__ = "exposure"
 
-    exposure: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
-    """Exposure ID from the Butler."""
-    instrument: Mapped[str] = mapped_column(primary_key=True)
-    """Instrument name from the Butler."""
-    day_obs: Mapped[int] = mapped_column(types.BigInteger)
-    """Observation date as stored in the Butler.  Note that this is the local
-    date at the beginning of the observing night, and not necessarily the same
-    calendar date as the exposure time below.
-    """
-    time: Mapped[datetime | None]
-    """Date and time when the exposure ended."""
     can_see_sky: Mapped[bool]
     """`True` if this exposure contains on-sky data. `False` if it contains
     only in-dome calibration or similar data that is not subject to embargo
     restrictions.
     """
+
+    butler_dimension = "exposure"
+    """Name of the corresponding Butler dimension.  This is not a SQL column.
+    """
+
+
+DimensionRecordTable: TypeAlias = type[Visit] | type[Exposure]
+DimensionRecordRow: TypeAlias = Visit | Exposure
 
 
 class Dataset(Base):
@@ -177,8 +248,8 @@ class Dataset(Base):
     """
 
     __table_args__ = (
-        ForeignKeyConstraint(["visit", "instrument"], ["visit.visit", "visit.instrument"]),
-        ForeignKeyConstraint(["exposure", "instrument"], ["exposure.exposure", "exposure.instrument"]),
+        ForeignKeyConstraint(["visit", "instrument"], ["visit.id", "visit.instrument"]),
+        ForeignKeyConstraint(["exposure", "instrument"], ["exposure.id", "exposure.instrument"]),
         # For queries trying to determine which datasets need to be transferred
         # from one repository or another, we always have equality constraints
         # on dataset_type (because rules are defined on a per-dataset-type
@@ -201,6 +272,14 @@ class Dataset(Base):
         ),
     )
 
+    @classmethod
+    def get_status_column(cls, repository: ButlerRepository) -> Mapped[DatasetLocationStatus]:
+        return getattr(cls, cls.get_status_column_name(repository))
+
+    @classmethod
+    def get_status_column_name(cls, repository: ButlerRepository) -> str:
+        return _butler_repository_to_status_column[repository]
+
 
 class UnknownDataset(Base):
     """Table storing a list of datasets that we were instructed to register in
@@ -218,3 +297,9 @@ class UnknownDataset(Base):
     """Human readable string describing why this dataset is being tracked in
     this table.
     """
+
+
+for table in (Dataset, Visit, Exposure):
+    for status_column in _butler_repository_to_status_column.values():
+        if getattr(table, status_column, None) is None:
+            raise AssertionError(f"Table {table.__tablename__} is missing status column {status_column}")
