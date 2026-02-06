@@ -25,6 +25,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Literal
 
+from .schema import DatasetOrigin
+
 
 @dataclass(frozen=True)
 class DatasetTypeConfigurationItem:
@@ -45,21 +47,32 @@ class DatasetTypeConfigurationItem:
 @dataclass(frozen=True)
 class ConfigurationGroup[_T]:
     key: _T
+    origin: DatasetOrigin
     dataset_types: list[str]
 
 
 class DatasetTypeConfiguration:
-    def __init__(self, config: dict[str, DatasetTypeConfigurationItem]):
-        self._config = dict(config)
+    def __init__(self, config: dict[DatasetOrigin, dict[str, DatasetTypeConfigurationItem]]):
+        self._config = {k: dict(v) for k, v in config.items()}
 
     def subset(self, dataset_types: list[str]) -> DatasetTypeConfiguration:
-        return DatasetTypeConfiguration({dt: self._config[dt] for dt in dataset_types})
+        return DatasetTypeConfiguration(
+            {origin: {dt: self._config[origin][dt] for dt in dataset_types} for origin in self._config.keys()}
+        )
 
     def group_by[_T](
         self, key_func: Callable[[DatasetTypeConfigurationItem], _T]
     ) -> list[ConfigurationGroup[_T]]:
-        groups: defaultdict[_T, set] = defaultdict(set)
-        for dataset_type, config in self._config.items():
-            key = key_func(config)
-            groups[key].add(dataset_type)
-        return [ConfigurationGroup(key, sorted(dataset_types)) for key, dataset_types in groups.items()]
+        # Computed key -> origin -> set of dataset types.
+        groups: defaultdict[_T, defaultdict[DatasetOrigin, set[str]]] = defaultdict(lambda: defaultdict(set))
+        for origin, origin_config in self._config.items():
+            for dataset_type, config in origin_config.items():
+                key = key_func(config)
+                groups[key][origin].add(dataset_type)
+
+        output = []
+        for key, origin_dict in groups.items():
+            for origin, dataset_types in origin_dict.items():
+                output.append(ConfigurationGroup(key, origin, sorted(dataset_types)))
+
+        return output

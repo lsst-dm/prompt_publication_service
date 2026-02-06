@@ -23,7 +23,7 @@ from enum import IntEnum
 from typing import Any, TypeAlias, Literal
 from uuid import UUID
 from datetime import datetime
-from sqlalchemy import ForeignKeyConstraint, Index
+from sqlalchemy import ForeignKeyConstraint, Index, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 import sqlalchemy.types as types
 
@@ -127,19 +127,12 @@ def _dimension_status_column(
 
 
 class DimensionRecordTableMixin:
-    """Columns that are used in both the `Visit` and `Exposure tables."""
+    """Columns that are used in all tables that track Butler dimension
+    records.
+    """
 
-    id: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
-    """Dimension primary key from the Butler (visit or exposure)."""
     instrument: Mapped[str] = mapped_column(primary_key=True)
     """Instrument name from the Butler."""
-    day_obs: Mapped[int] = mapped_column(types.BigInteger)
-    """Observation date as stored in the Butler.  Note that this is the local
-    date at the beginning of the observing night, and not necessarily the same
-    calendar date as the exposure time below.
-    """
-    time: Mapped[datetime | None]
-    """Date and time when the visit/exposure ended."""
 
     embargo_status = _dimension_status_column(DimensionRecordStatus.INITIAL)
     """Status of these dimension records in the ``embargo`` Butler
@@ -169,7 +162,22 @@ class DimensionRecordTableMixin:
         return _butler_repository_to_status_column[repository]
 
 
-class Visit(DimensionRecordTableMixin, Base):
+class DimensionRecordObservationMixin:
+    """Columns that are used in both the `Visit` and `Exposure` tables."""
+
+    id: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
+    """Dimension primary key from the Butler (visit or exposure)."""
+
+    day_obs: Mapped[int] = mapped_column(types.BigInteger)
+    """Observation date as stored in the Butler.  Note that this is the local
+    date at the beginning of the observing night, and not necessarily the same
+    calendar date as the exposure time below.
+    """
+    time: Mapped[datetime | None]
+    """Date and time when the visit/exposure ended."""
+
+
+class Visit(DimensionRecordTableMixin, DimensionRecordObservationMixin, Base):
     """Table tracking the status of Butler `visit` dimension metadata."""
 
     __tablename__ = "visit"
@@ -179,7 +187,7 @@ class Visit(DimensionRecordTableMixin, Base):
     """
 
 
-class Exposure(DimensionRecordTableMixin, Base):
+class Exposure(DimensionRecordTableMixin, DimensionRecordObservationMixin, Base):
     """Table tracking the status of Butler `exposure` dimension metadata."""
 
     __tablename__ = "exposure"
@@ -195,8 +203,20 @@ class Exposure(DimensionRecordTableMixin, Base):
     """
 
 
-DimensionRecordTable: TypeAlias = type[Visit] | type[Exposure]
-DimensionRecordRow: TypeAlias = Visit | Exposure
+class Group(DimensionRecordTableMixin, Base):
+    """Table tracking the status of Butler `group` dimension metadata."""
+
+    __tablename__ = "group"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+
+    butler_dimension = "group"
+    """Name of the corresponding Butler dimension.  This is not a SQL column.
+    """
+
+
+DimensionRecordTable: TypeAlias = type[Visit] | type[Exposure] | type[Group]
+DimensionRecordRow: TypeAlias = Visit | Exposure | Group
 
 
 class Dataset(Base):
@@ -218,6 +238,16 @@ class Dataset(Base):
     """Visit ID from the Butler."""
     exposure: Mapped[int] = mapped_column(types.BigInteger, nullable=True)
     """Exposure ID from the Butler."""
+    group: Mapped[str | None]
+    """Group ID from the Butler."""
+    butler_data_id: Mapped[dict[str, str | int] | None] = mapped_column(JSON, nullable=True)
+    """The portion of the Butler "required data ID" (metadata primary keys)
+    that is not already captured in instrument/visit/exposure/group, above.
+
+    This is currently unused by this service, but will make it easier to
+    migrate in the future if it turns out that more dimensions require special
+    handling, similar to the ones we capture as proper columns already.
+    """
 
     embargo_status: Mapped[DatasetLocationStatus] = mapped_column(_EnumColumn(DatasetLocationStatus))
     """Status of this dataset in the ``embargo`` Butler repository."""
@@ -250,11 +280,13 @@ class Dataset(Base):
     __table_args__ = (
         ForeignKeyConstraint(["visit", "instrument"], ["visit.id", "visit.instrument"]),
         ForeignKeyConstraint(["exposure", "instrument"], ["exposure.id", "exposure.instrument"]),
+        ForeignKeyConstraint(["group", "instrument"], ["group.id", "group.instrument"]),
         # For queries trying to determine which datasets need to be transferred
         # from one repository or another, we always have equality constraints
-        # on dataset_type (because rules are defined on a per-dataset-type
-        # basis) and prompt_prep_status (because prompt_prep is the 'central'
-        # repository which is always involved in transfers.)
+        # on dataset_type+origin (because rules are defined on a
+        # per-origin-per-dataset-type basis) and prompt_prep_status (because
+        # prompt_prep is the 'central' repository which is always involved in
+        # transfers.)
         #
         # We have an index for each repository status, to make sure these
         # searches stay fast as the DB grows.  This might be overkill, but I'm
@@ -262,7 +294,7 @@ class Dataset(Base):
         # vs consistency/reliability of Postgres' query planning, so I'm
         # leaning towards the latter.
         *(
-            Index(f"{column}_lookup", column, "prompt_prep_status", "dataset_type")
+            Index(f"dataset_{column}_lookup", column, "prompt_prep_status", "origin", "dataset_type")
             for column in (
                 "embargo_status",
                 "repo_main_status",
@@ -299,7 +331,7 @@ class UnknownDataset(Base):
     """
 
 
-for table in (Dataset, Visit, Exposure):
+for table in (Dataset, Visit, Exposure, Group):
     for status_column in _butler_repository_to_status_column.values():
         if getattr(table, status_column, None) is None:
             raise AssertionError(f"Table {table.__tablename__} is missing status column {status_column}")

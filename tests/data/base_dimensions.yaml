@@ -3,7 +3,6 @@
 # at USDF on 2025-12-10.
 # Hand-edited to:
 # - split records between `base_dimensions.yaml` and `visit_dimensions.yaml`
-# - remove extraneous 'group' dimension records
 description: Butler Data Repository Export
 version: 1.0.2
 universe_version: 7
@@ -48,10 +47,3 @@ data:
   - instrument: LSSTCam
     name: z_20
     band: z
-- type: dimension
-  element: group
-  records:
-  - instrument: LSSTCam
-    name: '2025-12-03T07:58:10.858'
-  - instrument: LSSTCam
-    name: '2025-12-03T07:58:25.583'

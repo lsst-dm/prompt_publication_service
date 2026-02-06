@@ -3,6 +3,7 @@
 # at USDF on 2025-12-10.
 # Hand-edited to:
 # - split records between `base_dimensions.yaml` and `visit_dimensions.yaml`
+# - remove extraneous 'group' dimension records
 # - modify the `can_see_sky` property for exposure 2025120200440 to `null` (to allow
 # this edge case to be tested.)
 description: Butler Data Repository Export
@@ -150,3 +151,10 @@ data:
   - instrument: LSSTCam
     visit_system: 2
     visit: 2025120200440
+- type: dimension
+  element: group
+  records:
+  - instrument: LSSTCam
+    name: '2025-12-03T07:58:10.858'
+  - instrument: LSSTCam
+    name: '2025-12-03T07:58:25.583'

@@ -33,6 +33,7 @@ from lsst.prompt_publication_service.schema import (
     Dataset,
     DatasetLocationStatus,
     Exposure,
+    Group,
     Visit,
 )
 from lsst.prompt_publication_service.tasks.base import TaskContext
@@ -119,6 +120,14 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             )
             # Still in the embargo period, so non-pixel data can be unembargoed
             # but the pixel data cannot.
+            # Initially, we still transfer nothing because the 'group'
+            # dimension records haven't been copied...
+            self.assertEqual(
+                await unembargo_transfer_task.run(self.context),
+                [],
+            )
+            # And then after the 'group' copy, the non-pixel datasets can go.
+            await DimensionRecordCopyTask(Group, "embargo", "prompt_prep").run(self.context)
             self.assertEqual(
                 await unembargo_transfer_task.run(self.context),
                 [nonvisit.id],
@@ -162,6 +171,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         with DateTimeSource.mock_current_time(between_visit_time, 2):
             # Now that there is a dataset in prompt_prep, it should move to
             # /repo/main.
+            await DimensionRecordCopyTask(Group, "prompt_prep", "/repo/main").run(self.context)
             self.assertEqual(
                 await repo_main_transfer_task.run(self.context),
                 [nonvisit.id],
@@ -239,6 +249,9 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         await register_embargo_datasets(
             self.state_db, DatasetOrigin.PROMPT_PROCESSING, self.embargo_butler, [ref1, ref2, ref3]
         )
+        # Transfer required 'group' records.
+        await DimensionRecordCopyTask(Group, "embargo", "prompt_prep").run(self.context)
+        await DimensionRecordCopyTask(Group, "prompt_prep", "/repo/main").run(self.context)
 
         # Remove first dataset from both registry and datastore.
         self.embargo_butler.pruneDatasets([ref1], disassociate=True, unstore=True, purge=True)
@@ -293,6 +306,9 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         await register_embargo_datasets(
             self.state_db, DatasetOrigin.PROMPT_PROCESSING, self.embargo_butler, [ref]
         )
+        # Transfer required 'group' records.
+        await DimensionRecordCopyTask(Group, "embargo", "prompt_prep").run(self.context)
+        await DimensionRecordCopyTask(Group, "prompt_prep", "/repo/main").run(self.context)
         # Copy the dataset to the target Butler.  This simulates the case where
         # unembargo failed partway through, after copying a dataset but before
         # updating the state DB.  Or someone could have transferred a dataset
