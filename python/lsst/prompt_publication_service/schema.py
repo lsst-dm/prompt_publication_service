@@ -35,7 +35,13 @@ class DatasetOrigin(IntEnum):
     # an integer value when making changes.
 
     PROMPT_PROCESSING = 1
-    """Datasets created by prompt processing worker pods."""
+    """Datasets created by prompt processing worker pods during the observing
+    night.
+    """
+    DAYTIME_AP_CATCHUP = 2
+    """Datasets created by alert processing 'catchup' batch processing after
+    the night is over.
+    """
 
 
 class DatasetLocationStatus(IntEnum):
