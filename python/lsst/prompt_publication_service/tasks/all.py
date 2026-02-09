@@ -19,34 +19,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from dataclasses import dataclass
+from .base import Task
+from .transfer import unembargo_transfer_task, repo_main_transfer_task
+from .dimension_record_copy import DimensionRecordCopyTask
+from ..schema import Visit, Group, Exposure
 
-from lsst.daf.butler import LabeledButlerFactory
+_DIMENSION_TABLES = (Visit, Group, Exposure)
 
-from ..config import DatasetTypeConfiguration
-from ..database import Database
-from typing import Literal, Protocol, Awaitable
-
-
-@dataclass(frozen=True)
-class TaskContext:
-    """Task dependencies provided by the top-level task runner that do not
-    depend on the individual task configuration.
-    """
-
-    dataset_config: DatasetTypeConfiguration
-    butler_factory: LabeledButlerFactory
-    state_database: Database
-
-
-@dataclass(frozen=True)
-class TaskRunResult[_T]:
-    result: Literal["success", "no-work-found"]
-    data: _T
-    """Task-specific information for debugging and unit tests -- not used by
-    main task runner.
-    """
-
-
-class Task[_T](Protocol):
-    def run(self, ctx: TaskContext) -> Awaitable[TaskRunResult[_T]]: ...
+ALL_TASKS: tuple[Task, ...] = (
+    unembargo_transfer_task,
+    repo_main_transfer_task,
+    *(DimensionRecordCopyTask(table, "embargo", "prompt_prep") for table in _DIMENSION_TABLES),
+    *(DimensionRecordCopyTask(table, "prompt_prep", "/repo/main") for table in _DIMENSION_TABLES),
+)

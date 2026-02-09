@@ -115,7 +115,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # Nothing has been copied to prompt_prep yet, so there is nothing
             # to copy to /repo/main.
             self.assertEqual(
-                await repo_main_transfer_task.run(self.context),
+                (await repo_main_transfer_task.run(self.context)).data,
                 [],
             )
             # Still in the embargo period, so non-pixel data can be unembargoed
@@ -123,13 +123,13 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # Initially, we still transfer nothing because the 'group'
             # dimension records haven't been copied...
             self.assertEqual(
-                await unembargo_transfer_task.run(self.context),
+                (await unembargo_transfer_task.run(self.context)).data,
                 [],
             )
             # And then after the 'group' copy, the non-pixel datasets can go.
             await DimensionRecordCopyTask(Group, "embargo", "prompt_prep").run(self.context)
             self.assertEqual(
-                await unembargo_transfer_task.run(self.context),
+                (await unembargo_transfer_task.run(self.context)).data,
                 [nonvisit.id],
             )
             # Non-pixel dataset is copied from embargo repo to prompt_prep
@@ -145,7 +145,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # yet.  Set up the exposure records, and then it should transfer.
             await DimensionRecordCopyTask(Exposure, "embargo", "prompt_prep").run(self.context)
             self.assertEqual(
-                await unembargo_transfer_task.run(self.context),
+                (await unembargo_transfer_task.run(self.context)).data,
                 [exposure.id],
             )
             self.assertEqual(self.prompt_prep_butler.get(exposure), 1)
@@ -173,7 +173,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # /repo/main.
             await DimensionRecordCopyTask(Group, "prompt_prep", "/repo/main").run(self.context)
             self.assertEqual(
-                await repo_main_transfer_task.run(self.context),
+                (await repo_main_transfer_task.run(self.context)).data,
                 [nonvisit.id],
             )
             state = await self._get_dataset_state(nonvisit.id)
@@ -193,11 +193,11 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # Still in the embargo period.  We already unembargoed the
             # non-pixel data, and there shouldn't be anything else yet.
             self.assertEqual(
-                await unembargo_transfer_task.run(self.context),
+                (await unembargo_transfer_task.run(self.context)).data,
                 [],
             )
             self.assertEqual(
-                await repo_main_transfer_task.run(self.context),
+                (await repo_main_transfer_task.run(self.context)).data,
                 [],
             )
 
@@ -208,14 +208,14 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # We haven't yet transferred the required visit records to the
             # repository, so we still can't unembargo anything else.
             self.assertEqual(
-                await unembargo_transfer_task.run(self.context),
+                (await unembargo_transfer_task.run(self.context)).data,
                 [],
             )
 
             # After transferring the visit records, we can proceed.
             await DimensionRecordCopyTask(Visit, "embargo", "prompt_prep").run(self.context)
             self.assertEqual(
-                await unembargo_transfer_task.run(self.context),
+                (await unembargo_transfer_task.run(self.context)).data,
                 [pvi1.id],
             )
             # Visit 1 dataset was copied from embargo to prompt_prep.
@@ -263,7 +263,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         # The first two datasets are missing, so only the third gets
         # unembargoed.
         self.assertEqual(
-            await unembargo_transfer_task.run(self.context),
+            (await unembargo_transfer_task.run(self.context)).data,
             [ref3.id],
         )
 
@@ -288,7 +288,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         # the state DB.
         self.prompt_prep_butler.pruneDatasets([ref3], disassociate=True, unstore=True, purge=True)
         self.assertEqual(
-            await repo_main_transfer_task.run(self.context),
+            (await repo_main_transfer_task.run(self.context)).data,
             [],
         )
         state3 = await self._get_dataset_state(ref3.id)
@@ -319,7 +319,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         # Unembargo should report success for the existing dataset, and update
         # the state DB.
         self.assertEqual(
-            await unembargo_transfer_task.run(self.context),
+            (await unembargo_transfer_task.run(self.context)).data,
             [ref.id],
         )
         state = await self._get_dataset_state(ref.id)
@@ -332,7 +332,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             self.prompt_prep_butler, [ref], transfer="hardlink", register_dataset_types=True
         )
         self.assertEqual(
-            await repo_main_transfer_task.run(self.context),
+            (await repo_main_transfer_task.run(self.context)).data,
             [ref.id],
         )
         state = await self._get_dataset_state(ref.id)

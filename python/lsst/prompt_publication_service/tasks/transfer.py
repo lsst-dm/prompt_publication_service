@@ -20,7 +20,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
-import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -44,9 +43,10 @@ from ..schema import (
     DimensionRecordStatus,
 )
 from ..date_time_source import DateTimeSource
-from .base import TaskContext
+from .base import TaskContext, TaskRunResult, Task
+from ..logging import get_global_logger
 
-_LOG = logging.getLogger(__name__)
+_LOG = get_global_logger()
 
 
 @dataclass(frozen=True)
@@ -80,18 +80,34 @@ class _DatasetTransferResult:
     """Datasets that were successfully transferred to the target repository."""
 
 
-class TransferTask:
+class TransferTask(Task):
     def __init__(self, transfer_config: TransferConfig):
         self._config = transfer_config
+        self._log = _LOG.bind(
+            task="dataset transfer",
+            source_repository=transfer_config.source_repository,
+            target_repository=transfer_config.target_repository,
+        )
 
-    async def run(self, ctx: TaskContext) -> list[DatasetId]:
+    async def run(self, ctx: TaskContext) -> TaskRunResult[list[DatasetId]]:
         datasets = await self._config.dataset_lookup_function(ctx.dataset_config, ctx.state_database)
+        self._log.info("datasets found", count=len(datasets))
+        if len(datasets) == 0:
+            return TaskRunResult("no-work-found", data=[])
+
         successful_datasets: list[DatasetId] = []
         for batch in batched(datasets, self._config.batch_size):
+            self._log.info("starting butler transfer", count=len(batch))
             result = await asyncio.to_thread(self._transfer_datasets, ctx.butler_factory, batch)
+            self._log.info(
+                "completed butler transfer",
+                transferred=len(result.transferred_datasets),
+                missing=len(result.missing_datasets),
+            )
             await self._record_transfer_result(ctx.state_database, result)
+            self._log.info("completed state DB update")
             successful_datasets.extend(result.transferred_datasets)
-        return successful_datasets
+        return TaskRunResult("success", data=successful_datasets)
 
     def _transfer_datasets(
         self, butler_factory: LabeledButlerFactory, dataset_ids: Iterable[UUID]
@@ -106,7 +122,7 @@ class TransferTask:
             # Dataset IDs that are not known to the Butler at all.
             missing_ids = dataset_ids - found_ids
             if missing_ids:
-                _LOG.warning(f"Datasets were not found in Butler registry: {missing_ids}")
+                self._log.warning("Datasets were not found in Butler registry", missing_ids=missing_ids)
 
             completed_refs = target_butler.transfer_from(
                 source_butler, datasets, self._config.transfer_mode, register_dataset_types=True
@@ -118,7 +134,10 @@ class TransferTask:
             # "datastore".
             missing_datastore_entries = found_ids - completed_ids
             if missing_datastore_entries:
-                _LOG.warning(f"Datasets were not found in Butler datastore: {missing_datastore_entries}")
+                self._log.warning(
+                    "Datasets were not found in Butler datastore",
+                    missing_datastore_entries=missing_datastore_entries,
+                )
 
             return _DatasetTransferResult(
                 missing_datasets=list(missing_ids.union(missing_datastore_entries)),

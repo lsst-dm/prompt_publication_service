@@ -19,34 +19,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from dataclasses import dataclass
+import asyncio
 
-from lsst.daf.butler import LabeledButlerFactory
-
-from ..config import DatasetTypeConfiguration
-from ..database import Database
-from typing import Literal, Protocol, Awaitable
+from collections.abc import Iterable
+from .tasks.base import Task, TaskContext
 
 
-@dataclass(frozen=True)
-class TaskContext:
-    """Task dependencies provided by the top-level task runner that do not
-    depend on the individual task configuration.
-    """
-
-    dataset_config: DatasetTypeConfiguration
-    butler_factory: LabeledButlerFactory
-    state_database: Database
+async def run_tasks(context: TaskContext, tasks: Iterable[Task]) -> None:
+    async with asyncio.TaskGroup() as tg:
+        for task in tasks:
+            tg.create_task(_run_single_task(context, task))
 
 
-@dataclass(frozen=True)
-class TaskRunResult[_T]:
-    result: Literal["success", "no-work-found"]
-    data: _T
-    """Task-specific information for debugging and unit tests -- not used by
-    main task runner.
-    """
-
-
-class Task[_T](Protocol):
-    def run(self, ctx: TaskContext) -> Awaitable[TaskRunResult[_T]]: ...
+async def _run_single_task(context: TaskContext, task: Task) -> None:
+    while True:
+        result = await task.run(context)
+        if result.result == "no-work-found":
+            await asyncio.sleep(60)

@@ -19,34 +19,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from dataclasses import dataclass
+from structlog.stdlib import get_logger, BoundLogger
 
-from lsst.daf.butler import LabeledButlerFactory
-
-from ..config import DatasetTypeConfiguration
-from ..database import Database
-from typing import Literal, Protocol, Awaitable
+_LOG = get_logger()
 
 
-@dataclass(frozen=True)
-class TaskContext:
-    """Task dependencies provided by the top-level task runner that do not
-    depend on the individual task configuration.
-    """
-
-    dataset_config: DatasetTypeConfiguration
-    butler_factory: LabeledButlerFactory
-    state_database: Database
-
-
-@dataclass(frozen=True)
-class TaskRunResult[_T]:
-    result: Literal["success", "no-work-found"]
-    data: _T
-    """Task-specific information for debugging and unit tests -- not used by
-    main task runner.
-    """
-
-
-class Task[_T](Protocol):
-    def run(self, ctx: TaskContext) -> Awaitable[TaskRunResult[_T]]: ...
+def get_global_logger() -> BoundLogger:
+    return _LOG

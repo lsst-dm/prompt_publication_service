@@ -20,7 +20,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
-import logging
 from collections.abc import Iterable
 from itertools import batched
 
@@ -35,12 +34,13 @@ from ..schema import (
     DimensionRecordRow,
     DimensionRecordStatus,
 )
-from .base import TaskContext
+from .base import TaskContext, Task, TaskRunResult
+from ..logging import get_global_logger
 
-_LOG = logging.getLogger(__name__)
+_LOG = get_global_logger()
 
 
-class DimensionRecordCopyTask:
+class DimensionRecordCopyTask(Task):
     """Task for copying dimension records between Butler repositories."""
 
     def __init__(
@@ -52,14 +52,27 @@ class DimensionRecordCopyTask:
         self._table = table
         self._source_repository = source_repository
         self._target_repository = target_repository
+        self._log = _LOG.bind(
+            task="dimension record copy",
+            dimension=table.butler_dimension,
+            source_repository=source_repository,
+            target_repository=target_repository,
+        )
 
-    async def run(self, context: TaskContext) -> int:
+    async def run(self, context: TaskContext) -> TaskRunResult[int]:
         rows = await self._find_records_to_unembargo(context.state_database)
+        self._log.info("found rows", count=len(rows))
+        if len(rows) == 0:
+            return TaskRunResult("no-work-found", 0)
+
         batch_size = 5000
         for batch in batched(rows, batch_size):
+            self._log.info("starting dimension record copy", count=len(batch))
             await asyncio.to_thread(self._transfer_dimension_records, context.butler_factory, batch)
+            self._log.info("completed dimension record copy", count=len(batch))
             await self._record_result(context.state_database, batch)
-        return len(rows)
+            self._log.info("completed state DB update", count=len(batch))
+        return TaskRunResult("success", len(rows))
 
     async def _find_records_to_unembargo(self, state_database: Database) -> list[DimensionRecordRow]:
         query = (
