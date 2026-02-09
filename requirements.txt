@@ -1,5 +1,6 @@
 aiokafka
 aiosqlite
+alembic
 click
 sqlalchemy
 lsst-daf-butler @ git+https://github.com/lsst/daf_butler@main
