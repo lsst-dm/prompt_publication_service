@@ -27,7 +27,6 @@ from itertools import batched
 from typing import Literal, Callable, Awaitable
 
 from uuid import UUID
-from structlog.stdlib import get_logger
 from sqlalchemy import select, union_all, Select, update
 
 from lsst.daf.butler import DatasetId, LabeledButlerFactory
@@ -45,8 +44,9 @@ from ..schema import (
 )
 from ..date_time_source import DateTimeSource
 from .base import TaskContext, TaskRunResult, Task
+from ..logging import get_global_logger
 
-_LOG = get_logger()
+_LOG = get_global_logger()
 
 
 @dataclass(frozen=True)

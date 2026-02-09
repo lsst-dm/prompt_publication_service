@@ -24,15 +24,15 @@ import datetime
 from uuid import UUID
 
 import pydantic
-from structlog.stdlib import get_logger
 
 from lsst.daf.butler import Butler, DataCoordinate, DatasetRef, DimensionRecord, Timespan
 from lsst.resources import ResourcePath
 
 from .database import Database
+from .logging import get_global_logger
 from .schema import Dataset, Group, Visit, DatasetOrigin, DatasetLocationStatus, UnknownDataset, Exposure
 
-_LOG = get_logger()
+_LOG = get_global_logger()
 
 
 class DatasetBatch(pydantic.BaseModel):

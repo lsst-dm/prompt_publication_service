@@ -24,7 +24,6 @@ from collections.abc import Iterable
 from itertools import batched
 
 from sqlalchemy import select
-from structlog.stdlib import get_logger
 
 from lsst.daf.butler import LabeledButlerFactory, DataCoordinate
 
@@ -36,8 +35,9 @@ from ..schema import (
     DimensionRecordStatus,
 )
 from .base import TaskContext, Task, TaskRunResult
+from ..logging import get_global_logger
 
-_LOG = get_logger()
+_LOG = get_global_logger()
 
 
 class DimensionRecordCopyTask(Task):
