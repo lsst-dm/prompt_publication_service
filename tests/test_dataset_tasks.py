@@ -19,7 +19,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import os
 import unittest
 from datetime import timedelta
 from uuid import UUID
@@ -170,11 +169,11 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             state = await self._get_dataset_state(nonvisit.id)
             self.assertEqual(state.repo_main_status, DatasetLocationStatus.PRESENT)
             self.assertEqual(self.main_butler.get(nonvisit), 3)
-            # Files are hardlinked in /repo/main from prompt_prep.
-            main_path = self.main_butler.getURI(nonvisit).ospath
-            prompt_prep_path = self.prompt_prep_butler.getURI(nonvisit).ospath
-            self.assertNotEqual(main_path, prompt_prep_path)
-            self.assertTrue(os.path.samefile(main_path, prompt_prep_path))
+            # Files are referenced at their existing location in prompt_prep
+            # from /repo/main.
+            main_path = self.main_butler.getURI(nonvisit)
+            prompt_prep_path = self.prompt_prep_butler.getURI(nonvisit)
+            self.assertEqual(main_path, prompt_prep_path)
             # Unembargo time and prompt_prep status are not modified when
             # copying to /repo/main.
             self.assertEqual(state.unembargo_time, time1)

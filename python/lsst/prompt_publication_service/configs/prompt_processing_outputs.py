@@ -28,6 +28,9 @@ _TIER2_RETENTION_PERIOD_DAYS = 30
 _PROVENANCE = DatasetTypeConfigurationItem(
     embargo_period_hours=0, publish_to_public=True, retention_period_days="forever"
 )
+_PROVENANCE_INTERNAL = DatasetTypeConfigurationItem(
+    embargo_period_hours=0, publish_to_public=False, retention_period_days="forever"
+)
 
 _TIER1_PIXEL = DatasetTypeConfigurationItem(
     embargo_period_hours=_EMBARGO_PERIOD_HOURS, publish_to_public=True, retention_period_days="forever"
@@ -160,6 +163,7 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "mpSkyEphemerisQuery_log": _PROVENANCE,
             "mpSkyEphemerisQuery_metadata": _PROVENANCE,
             "packages": _PROVENANCE,
+            "prompt_provenance": _PROVENANCE_INTERNAL,
             "singleFrameDetectAndMeasure_config": _PROVENANCE,
             "singleFrameDetectAndMeasure_log": _PROVENANCE,
             "singleFrameDetectAndMeasure_metadata": _PROVENANCE,
