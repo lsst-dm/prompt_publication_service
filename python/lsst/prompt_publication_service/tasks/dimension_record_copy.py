@@ -25,17 +25,17 @@ from itertools import batched
 
 from sqlalchemy import select
 
-from lsst.daf.butler import LabeledButlerFactory, DataCoordinate
+from lsst.daf.butler import DataCoordinate, LabeledButlerFactory
 
 from ..database import Database
+from ..logging import get_global_logger
 from ..schema import (
     ButlerRepository,
-    DimensionRecordTable,
     DimensionRecordRow,
     DimensionRecordStatus,
+    DimensionRecordTable,
 )
-from .base import TaskContext, Task, TaskRunResult
-from ..logging import get_global_logger
+from .base import Task, TaskContext, TaskRunResult
 
 _LOG = get_global_logger()
 

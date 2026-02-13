@@ -21,7 +21,7 @@
 
 from asyncio import Lock
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Self
 
 from aiokafka import AIOKafkaConsumer

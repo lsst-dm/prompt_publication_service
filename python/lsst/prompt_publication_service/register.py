@@ -30,7 +30,7 @@ from lsst.resources import ResourcePath
 
 from .database import Database
 from .logging import get_global_logger
-from .schema import Dataset, Group, Visit, DatasetOrigin, DatasetLocationStatus, UnknownDataset, Exposure
+from .schema import Dataset, DatasetLocationStatus, DatasetOrigin, Exposure, Group, UnknownDataset, Visit
 
 _LOG = get_global_logger()
 

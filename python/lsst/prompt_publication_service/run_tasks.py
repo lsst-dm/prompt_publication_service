@@ -20,8 +20,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
-
 from collections.abc import Iterable
+
 from .tasks.base import Task, TaskContext
 
 

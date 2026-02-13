@@ -19,13 +19,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from enum import IntEnum
-from typing import Any, TypeAlias, Literal
-from uuid import UUID
 from datetime import datetime
-from sqlalchemy import ForeignKeyConstraint, Index, JSON
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from enum import IntEnum
+from typing import Any, Literal, TypeAlias
+from uuid import UUID
+
 import sqlalchemy.types as types
+from sqlalchemy import JSON, ForeignKeyConstraint, Index
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class DatasetOrigin(IntEnum):

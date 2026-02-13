@@ -21,15 +21,15 @@
 
 import unittest
 
+from lsst.prompt_publication_service.schema import Exposure, Visit
 from lsst.prompt_publication_service.tasks.dimension_record_copy import DimensionRecordCopyTask
-from lsst.prompt_publication_service.schema import Visit, Exposure
 from lsst.prompt_publication_service.test_utils import (
-    setup_task_context_with_empty_repos,
-    load_base_dimension_data,
-    load_visit_dimension_data,
+    EXPOSURE1,
     VISIT1,
     VISIT2,
-    EXPOSURE1,
+    load_base_dimension_data,
+    load_visit_dimension_data,
+    setup_task_context_with_empty_repos,
 )
 
 

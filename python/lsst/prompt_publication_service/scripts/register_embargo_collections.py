@@ -23,6 +23,7 @@ import asyncio
 from collections import defaultdict
 
 import click
+
 from lsst.daf.butler import Butler, DatasetRef
 
 from ..database import Database

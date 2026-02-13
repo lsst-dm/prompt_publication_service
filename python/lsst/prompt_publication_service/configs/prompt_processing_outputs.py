@@ -19,8 +19,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from ..schema import DatasetOrigin
 from ..config import DatasetTypeConfiguration, DatasetTypeConfigurationItem
+from ..schema import DatasetOrigin
 
 _EMBARGO_PERIOD_HOURS = 80
 _TIER2_RETENTION_PERIOD_DAYS = 30
