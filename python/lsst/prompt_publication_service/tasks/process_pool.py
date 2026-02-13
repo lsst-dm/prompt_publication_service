@@ -36,7 +36,7 @@ from lsst.daf.butler import LabeledButlerFactory
 @contextmanager
 def initialize_worker_pool(butler_repos: dict[str, str]) -> Iterator[WorkerPool]:
     with ProcessPoolExecutor(
-        initializer=_initialize_process_pool_context,
+        initializer=WorkerPool._initialize_process_pool_context,
         initargs=(butler_repos,),
         mp_context=multiprocessing.get_context("spawn"),
     ) as executor:
@@ -52,6 +52,8 @@ type WorkerFunction[**P, T] = Callable[Concatenate[WorkerTaskContext, P], T]
 
 
 class WorkerPool:
+    _WORKER_TASK_CONTEXT: WorkerTaskContext | None = None
+
     def __init__(self, executor: ProcessPoolExecutor):
         self._executor = executor
 
@@ -65,22 +67,18 @@ class WorkerPool:
             raise AssertionError("Specify all arguments to WorkerPool.run() as keyword args")
         func = partial(func, **kwargs)
 
-        return await asyncio.get_running_loop().run_in_executor(self._executor, _run_worker_func, func)
+        return await asyncio.get_running_loop().run_in_executor(
+            self._executor, WorkerPool._run_worker_func, func
+        )
 
+    @classmethod
+    def _initialize_process_pool_context(cls, butler_repos: dict[str, str]) -> None:
+        cls._WORKER_TASK_CONTEXT = WorkerTaskContext(
+            butler_factory=LabeledButlerFactory(butler_repos, writeable=True)
+        )
 
-_WORKER_TASK_CONTEXT: WorkerTaskContext | None = None
-
-
-def _initialize_process_pool_context(butler_repos: dict[str, str]) -> None:
-    global _WORKER_TASK_CONTEXT
-    _WORKER_TASK_CONTEXT = WorkerTaskContext(
-        butler_factory=LabeledButlerFactory(butler_repos, writeable=True)
-    )
-
-
-def _run_worker_func[T](func: Callable[[WorkerTaskContext], T]) -> T:
-    global _WORKER_TASK_CONTEXT
-    context = _WORKER_TASK_CONTEXT
-    if context is None:
-        raise AssertionError("Worker process context was not initialized")
-    return func(context)
+    @classmethod
+    def _run_worker_func[T](cls, func: Callable[[WorkerTaskContext], T]) -> T:
+        if cls._WORKER_TASK_CONTEXT is None:
+            raise AssertionError("Worker process context was not initialized")
+        return func(cls._WORKER_TASK_CONTEXT)
