@@ -23,6 +23,7 @@ import asyncio
 
 import click
 from lsst.daf.butler import LabeledButlerFactory, ButlerRepoIndex
+from ..tasks.process_pool import initialize_worker_pool
 
 from ..configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from ..database import Database
@@ -46,21 +47,26 @@ def run_all_tasks(
         dataset_types = split_dataset_types_argument(types)
         config = config.subset(dataset_types)
 
-    butler_factory = LabeledButlerFactory(
-        {
-            "embargo": _lookup_butler_repo_path(embargo_repo),
-            "prompt_prep": _lookup_butler_repo_path(prompt_prep_repo),
-            "/repo/main": _lookup_butler_repo_path(main_repo),
-        },
-        writeable=True,
-    )
+    repositories = {
+        "embargo": _lookup_butler_repo_path(embargo_repo),
+        "prompt_prep": _lookup_butler_repo_path(prompt_prep_repo),
+        "/repo/main": _lookup_butler_repo_path(main_repo),
+    }
 
-    async def run():
-        async with Database(database_uri) as db:
-            context = TaskContext(config, butler_factory, db)
-            await run_tasks(context, ALL_TASKS)
+    with (
+        LabeledButlerFactory(
+            repositories,
+            writeable=True,
+        ) as butler_factory,
+        initialize_worker_pool(repositories) as worker_pool,
+    ):
 
-    asyncio.run(run())
+        async def run():
+            async with Database(database_uri) as db:
+                context = TaskContext(config, butler_factory, db, worker_pool)
+                await run_tasks(context, ALL_TASKS)
+
+        asyncio.run(run())
 
 
 def _lookup_butler_repo_path(repo_name_or_path: str) -> str:
