@@ -32,7 +32,7 @@ from .configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from .database import Database
 from .schema import ButlerRepository
 from .tasks.base import TaskContext
-from .tasks.process_pool import initialize_worker_pool
+from .tasks.impl.process_pool import initialize_worker_pool
 
 
 @contextmanager

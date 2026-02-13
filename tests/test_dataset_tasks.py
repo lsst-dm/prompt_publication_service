@@ -37,7 +37,8 @@ from lsst.prompt_publication_service.schema import (
     Visit,
 )
 from lsst.prompt_publication_service.tasks.dimension_record_copy import DimensionRecordCopyTask
-from lsst.prompt_publication_service.tasks.transfer import repo_main_transfer_task, unembargo_transfer_task
+from lsst.prompt_publication_service.tasks.repo_main import repo_main_transfer_task
+from lsst.prompt_publication_service.tasks.unembargo import unembargo_transfer_task
 from lsst.prompt_publication_service.test_utils import (
     EXPOSURE1,
     EXPOSURE_DATASET_TYPE,

@@ -19,36 +19,31 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from dataclasses import dataclass
-from typing import Awaitable, Literal, Protocol
+__all__ = ("repo_main_transfer_task",)
 
-from lsst.daf.butler import LabeledButlerFactory
+from uuid import UUID
 
 from ..config import DatasetTypeConfiguration
 from ..database import Database
-from .impl.process_pool import WorkerPool
+from .impl.transfer import MAX_DATASETS_PER_QUERY, TransferConfig, TransferTask, create_transfer_lookup_query
 
 
-@dataclass(frozen=True)
-class TaskContext:
-    """Task dependencies provided by the top-level task runner that do not
-    depend on the individual task configuration.
-    """
-
-    dataset_config: DatasetTypeConfiguration
-    butler_factory: LabeledButlerFactory
-    state_database: Database
-    worker_pool: WorkerPool
+async def _find_datasets_to_copy_to_repo_main(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
+    async with db.session() as session:
+        query = create_transfer_lookup_query("prompt_prep", "/repo/main").limit(MAX_DATASETS_PER_QUERY)
+        async with db.session() as session:
+            dataset_ids = await session.scalars(query)
+            return list(dataset_ids)
 
 
-@dataclass(frozen=True)
-class TaskRunResult[_T]:
-    result: Literal["success", "no-work-found"]
-    data: _T
-    """Task-specific information for debugging and unit tests -- not used by
-    main task runner.
-    """
-
-
-class Task[_T](Protocol):
-    def run(self, ctx: TaskContext) -> Awaitable[TaskRunResult[_T]]: ...
+repo_main_transfer_task = TransferTask(
+    TransferConfig(
+        source_repository="prompt_prep",
+        target_repository="/repo/main",
+        transfer_mode="unsafe_direct",
+        dataset_lookup_function=_find_datasets_to_copy_to_repo_main,
+        batch_size=20000,
+        max_concurrency=2,
+        target_time_column=None,
+    )
+)

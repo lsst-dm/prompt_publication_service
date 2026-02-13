@@ -22,7 +22,8 @@
 from ..schema import Exposure, Group, Visit
 from .base import Task
 from .dimension_record_copy import DimensionRecordCopyTask
-from .transfer import repo_main_transfer_task, unembargo_transfer_task
+from .repo_main import repo_main_transfer_task
+from .unembargo import unembargo_transfer_task
 
 _DIMENSION_TABLES = (Visit, Group, Exposure)
 

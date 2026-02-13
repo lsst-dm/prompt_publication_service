@@ -30,7 +30,7 @@ from ..database import Database
 from ..run_tasks import run_tasks
 from ..tasks.all import ALL_TASKS
 from ..tasks.base import TaskContext
-from ..tasks.process_pool import initialize_worker_pool
+from ..tasks.impl.process_pool import initialize_worker_pool
 from ._utils import split_dataset_types_argument
 
 

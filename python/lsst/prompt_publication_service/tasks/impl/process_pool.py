@@ -34,7 +34,7 @@ from structlog.stdlib import BoundLogger
 
 from lsst.daf.butler import LabeledButlerFactory
 
-from ..logging import get_logger
+from ...logging import get_logger
 
 
 @contextmanager

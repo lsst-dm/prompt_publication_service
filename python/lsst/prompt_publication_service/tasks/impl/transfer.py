@@ -22,20 +22,19 @@
 import asyncio
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import timedelta
 from itertools import batched
 from typing import Awaitable, Callable, Literal
 from uuid import UUID
 
-from sqlalchemy import Select, select, union_all, update
+from sqlalchemy import Select, select, update
 
 from lsst.daf.butler import DatasetId
 
-from ..config import DatasetTypeConfiguration
-from ..database import Database
-from ..date_time_source import DateTimeSource
-from ..logging import get_global_logger
-from ..schema import (
+from ...config import DatasetTypeConfiguration
+from ...database import Database
+from ...date_time_source import DateTimeSource
+from ...logging import get_global_logger
+from ...schema import (
     ButlerRepository,
     Dataset,
     DatasetLocationStatus,
@@ -44,7 +43,7 @@ from ..schema import (
     Group,
     Visit,
 )
-from .base import Task, TaskContext, TaskRunResult
+from ..base import Task, TaskContext, TaskRunResult
 from .process_pool import WorkerTaskContext
 
 _LOG = get_global_logger()
@@ -219,10 +218,10 @@ def _transfer_datasets(
         )
 
 
-_MAX_DATASETS_PER_QUERY = 1_000_000
+MAX_DATASETS_PER_QUERY = 1_000_000
 
 
-def _create_transfer_lookup_query(
+def create_transfer_lookup_query(
     source_repository: ButlerRepository, target_repository: ButlerRepository
 ) -> Select[tuple[UUID]]:
     """Returns a SQL query against the Dataset table that finds the dataset
@@ -248,64 +247,3 @@ def _create_transfer_lookup_query(
             | (Group.get_status_column(target_repository) != DimensionRecordStatus.NEVER_PRESENT),
         )
     )
-
-
-async def _find_datasets_to_unembargo(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
-    queries: list[Select[tuple[UUID]]] = []
-    for group in config.group_by(lambda c: c.embargo_period_hours):
-        query = _create_transfer_lookup_query("embargo", "prompt_prep").where(
-            Dataset.origin == group.origin,
-            Dataset.dataset_type.in_(group.dataset_types),
-        )
-        embargo_hours = group.key
-        if embargo_hours > 0:
-            unembargo_time = DateTimeSource.now() - timedelta(hours=embargo_hours)
-            # Note: this will not find datasets that are tracked by `exposure`
-            # instead of `visit`.  At the time of writing no exposure datasets
-            # with embargo restrictions are planned for publication.  If that
-            # changes, this will also need to test against the time from the
-            # `Exposure` table.
-            query = query.where(Visit.time < unembargo_time)
-        queries.append(query)
-
-    async with db.session() as session:
-        combined_query = union_all(*queries).limit(_MAX_DATASETS_PER_QUERY)
-        dataset_ids = await session.scalars(combined_query)
-    return list(dataset_ids)
-
-
-unembargo_transfer_task = TransferTask(
-    TransferConfig(
-        source_repository="embargo",
-        target_repository="prompt_prep",
-        transfer_mode="copy",
-        dataset_lookup_function=_find_datasets_to_unembargo,
-        # File copy can be slow and unreliable, and Butler currently holds DB
-        # transactions open during the file transfer process.  So it's best to
-        # copy only a handful of files at a time.
-        batch_size=100,
-        max_concurrency=16,
-        target_time_column="unembargo_time",
-    )
-)
-
-
-async def _find_datasets_to_copy_to_repo_main(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
-    async with db.session() as session:
-        query = _create_transfer_lookup_query("prompt_prep", "/repo/main").limit(_MAX_DATASETS_PER_QUERY)
-        async with db.session() as session:
-            dataset_ids = await session.scalars(query)
-            return list(dataset_ids)
-
-
-repo_main_transfer_task = TransferTask(
-    TransferConfig(
-        source_repository="prompt_prep",
-        target_repository="/repo/main",
-        transfer_mode="unsafe_direct",
-        dataset_lookup_function=_find_datasets_to_copy_to_repo_main,
-        batch_size=20000,
-        max_concurrency=2,
-        target_time_column=None,
-    )
-)
