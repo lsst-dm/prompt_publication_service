@@ -48,14 +48,14 @@ class WorkerTaskContext:
     butler_factory: LabeledButlerFactory
 
 
-type WorkerFunction[**_P, _T] = Callable[Concatenate[WorkerTaskContext, _P], _T]
+type WorkerFunction[**P, T] = Callable[Concatenate[WorkerTaskContext, P], T]
 
 
 class WorkerPool:
     def __init__(self, executor: ProcessPoolExecutor):
         self._executor = executor
 
-    async def run[**_P, _T](self, func: WorkerFunction[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> _T:
+    async def run[**P, T](self, func: WorkerFunction[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
         """Run the given function in a process pool.  The function must be
         pickleable (usually, a plain module-level function with a name). All
         arguments and the return value must also be pickleable.
@@ -78,7 +78,7 @@ def _initialize_process_pool_context(butler_repos: dict[str, str]) -> None:
     )
 
 
-def _run_worker_func[_T](func: Callable[[WorkerTaskContext], _T]) -> _T:
+def _run_worker_func[T](func: Callable[[WorkerTaskContext], T]) -> T:
     global _WORKER_TASK_CONTEXT
     context = _WORKER_TASK_CONTEXT
     if context is None:
