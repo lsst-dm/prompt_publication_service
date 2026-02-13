@@ -39,9 +39,15 @@ from ._utils import split_dataset_types_argument
 @click.option("--embargo-repo", default="embargo")
 @click.option("--main-repo", default="/repo/main")
 @click.option("--prompt-prep-repo", default="prompt_prep")
+@click.option("--google-int-repo", required=True)
 @click.option("--types", default="")
 def run_all_tasks(
-    database_uri: str, embargo_repo: str, main_repo: str, prompt_prep_repo: str, types: str
+    database_uri: str,
+    embargo_repo: str,
+    main_repo: str,
+    prompt_prep_repo: str,
+    google_int_repo: str,
+    types: str,
 ) -> None:
     config = PROMPT_PROCESSING_OUTPUT_CONFIG
     if types:
@@ -52,6 +58,7 @@ def run_all_tasks(
         "embargo": _lookup_butler_repo_path(embargo_repo),
         "prompt_prep": _lookup_butler_repo_path(prompt_prep_repo),
         "/repo/main": _lookup_butler_repo_path(main_repo),
+        "prompt_google_int": _lookup_butler_repo_path(google_int_repo),
     }
 
     with (

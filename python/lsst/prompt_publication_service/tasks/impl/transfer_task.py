@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from itertools import batched
-from typing import Awaitable, Callable, Literal
+from typing import Awaitable, Callable
 from uuid import UUID
 
 from sqlalchemy import Select, select, update
@@ -65,8 +65,6 @@ class TransferConfig:
     """
     target_repository: ButlerRepository
     """Label of the Butler repository that datasets will be transferred to."""
-    transfer_mode: Literal["copy", "unsafe_direct"]
-    """Butler transfer mode, see `lsst.daf.butler.Butler.transfer_from`."""
     dataset_lookup_function: Callable[[DatasetTypeConfiguration, Database], Awaitable[list[DatasetId]]]
     """Function that will be called to find the UUIDs of the datasets that
     will be transferred.

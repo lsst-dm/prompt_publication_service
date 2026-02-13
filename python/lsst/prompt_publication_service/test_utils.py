@@ -22,11 +22,11 @@
 import datetime
 import tempfile
 from collections.abc import AsyncIterator, Iterable, Iterator
-from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from contextlib import AsyncExitStack, ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from lsst.daf.butler import Butler, DatasetType, LabeledButlerFactory
+from lsst.daf.butler import Butler, Config, DatasetType, LabeledButlerFactory
 
 from .configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from .database import Database
@@ -36,15 +36,35 @@ from .tasks.impl.process_pool import initialize_worker_pool
 
 
 @contextmanager
-def create_butler_repo() -> Iterator[str]:
+def create_empty_butler_repo() -> Iterator[str]:
+    """Create an empty Butler repository."""
     with tempfile.TemporaryDirectory() as temp_dir:
         Butler.makeRepo(temp_dir)
         yield temp_dir
 
 
 @contextmanager
+def create_butler_repo_with_shared_datastore(shared_datastore_path: str) -> Iterator[str]:
+    """Create a Butler repository that shares a datastore directory with
+    another repository, but has its own independent database.
+
+    Notes
+    -----
+    This is meant to simulate the configuration of the Google ``prompt`` repos,
+    which access the files stored in the `prompt_prep` repo via S3.
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config = Config()
+        config["datastore", "datastore", "root"] = shared_datastore_path
+        # Match default value from the Butler configuration for the original datastore
+        config["datastore", "datastore", "name"] = "FileDatastore@<butlerRoot>"
+        Butler.makeRepo(temp_dir, config, forceConfigRoot=False)
+        yield temp_dir
+
+
+@contextmanager
 def create_butler(run: str) -> Iterator[Butler]:
-    with create_butler_repo() as repo:
+    with create_empty_butler_repo() as repo:
         with Butler.from_config(repo, writeable=True, run=run) as butler:
             yield butler
 
@@ -72,6 +92,7 @@ def load_visit_dimension_data(butler: Butler) -> None:
 
 
 VISIT_DATASET_TYPE = "preliminary_visit_image"
+UNPUBLISHED_VISIT_DATASET_TYPE = "template_detector"
 NONVISIT_DATASET_TYPE = "regionTimeInfo"
 EXPOSURE_DATASET_TYPE = "isr_log"
 
@@ -93,10 +114,17 @@ EXPOSURE2 = VISIT2
 
 
 def register_test_dataset_types(butler: Butler) -> None:
-    # Register a dataset type with a 'visit' dimension...
+    # Register a dataset type with a 'visit' dimension that will be published
+    # to Google.
     butler.registry.registerDatasetType(
         DatasetType(VISIT_DATASET_TYPE, butler.dimensions.conform(["visit", "detector"]), "int")
     )
+    # Register a dataset type with a visit dimension that will not be published
+    # to Google.
+    butler.registry.registerDatasetType(
+        DatasetType(UNPUBLISHED_VISIT_DATASET_TYPE, butler.dimensions.conform(["visit", "detector"]), "int")
+    )
+    # One with an exposure dimension, that will be published.
     butler.registry.registerDatasetType(
         DatasetType(
             EXPOSURE_DATASET_TYPE, butler.dimensions.conform(["instrument", "detector", "exposure"]), "int"
@@ -110,12 +138,24 @@ def register_test_dataset_types(butler: Butler) -> None:
     )
 
 
+@contextmanager
+def setup_butler_repos() -> Iterator[dict[str, str]]:
+    repo_paths: dict[str, str] = {}
+    with ExitStack() as exit_stack:
+        for repo in ("embargo", "prompt_prep", "/repo/main"):
+            repo_paths[repo] = exit_stack.enter_context(create_empty_butler_repo())
+        repo_paths["prompt_google_int"] = exit_stack.enter_context(
+            create_butler_repo_with_shared_datastore(repo_paths["prompt_prep"])
+        )
+        yield repo_paths
+
+
 @asynccontextmanager
 async def setup_task_context_with_empty_repos(
     repos: Iterable[ButlerRepository],
 ) -> AsyncIterator[TaskContext]:
     async with AsyncExitStack() as exit_stack:
-        repo_paths: dict[str, str] = {repo: exit_stack.enter_context(create_butler_repo()) for repo in repos}
+        repo_paths = exit_stack.enter_context(setup_butler_repos())
         butler_factory = exit_stack.enter_context(LabeledButlerFactory(repo_paths, writeable=True))
         worker_pool = exit_stack.enter_context(initialize_worker_pool(repo_paths))
         state_database = await exit_stack.enter_async_context(create_publication_state_db())

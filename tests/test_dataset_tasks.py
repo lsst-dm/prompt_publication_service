@@ -25,7 +25,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
-from lsst.daf.butler import Butler
+from lsst.daf.butler import Butler, CollectionType
 from lsst.prompt_publication_service.date_time_source import DateTimeSource
 from lsst.prompt_publication_service.register import register_embargo_datasets
 from lsst.prompt_publication_service.schema import (
@@ -37,12 +37,17 @@ from lsst.prompt_publication_service.schema import (
     Visit,
 )
 from lsst.prompt_publication_service.tasks.dimension_record_copy import DimensionRecordCopyTask
+from lsst.prompt_publication_service.tasks.publish_to_google import (
+    OUTPUT_TAGGED_COLLECTION,
+    publish_to_google_task,
+)
 from lsst.prompt_publication_service.tasks.repo_main import repo_main_transfer_task
 from lsst.prompt_publication_service.tasks.unembargo import unembargo_transfer_task
 from lsst.prompt_publication_service.test_utils import (
     EXPOSURE1,
     EXPOSURE_DATASET_TYPE,
     NONVISIT_DATASET_TYPE,
+    UNPUBLISHED_VISIT_DATASET_TYPE,
     VISIT1,
     VISIT2,
     VISIT_DATASET_TYPE,
@@ -70,6 +75,9 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         load_base_dimension_data(self.prompt_prep_butler)
         self.main_butler = self.enterContext(self.butler_factory.create_butler("/repo/main"))
         load_base_dimension_data(self.main_butler)
+        self.prompt_google_butler = self.enterContext(self.butler_factory.create_butler("prompt_google_int"))
+        load_base_dimension_data(self.prompt_google_butler)
+        self.prompt_google_butler.collections.register(OUTPUT_TAGGED_COLLECTION, CollectionType.TAGGED)
 
     async def test_unembargo(self) -> None:
         """Test the basic functionality of the unembargo process."""
@@ -82,6 +90,11 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         pvi2 = self.embargo_butler.put(
             2, VISIT_DATASET_TYPE, instrument="LSSTCam", visit=VISIT2.id, detector=11
         )
+        # A pixel dataset type that has to wait to unembargo, but is not
+        # published to the public Google repos.
+        unpublished_visit = self.embargo_butler.put(
+            1, UNPUBLISHED_VISIT_DATASET_TYPE, instrument="LSSTCam", visit=VISIT1.id, detector=10
+        )
         # Non-pixel dataset that can be unembargoed immediately, but requires
         # exposure records prior to the dataset transfer.
         exposure = self.embargo_butler.put(
@@ -93,7 +106,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             3, NONVISIT_DATASET_TYPE, instrument="LSSTCam", detector=10, group="2025-12-03T07:58:25.583"
         )
 
-        datasets = [pvi1, pvi2, nonvisit, exposure]
+        datasets = [pvi1, pvi2, unpublished_visit, nonvisit, exposure]
         await register_embargo_datasets(
             self.state_db, DatasetOrigin.PROMPT_PROCESSING, self.embargo_butler, datasets
         )
@@ -149,6 +162,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # period.
             self.assertIsNone(self.prompt_prep_butler.get_dataset(pvi1.id))
             self.assertIsNone(self.prompt_prep_butler.get_dataset(pvi2.id))
+            self.assertIsNone(self.prompt_prep_butler.get_dataset(unpublished_visit.id))
             # State has been updated and the unembargo time recorded for the
             # non-pixel dataset.
             nonvisit_state = await self._get_dataset_state(nonvisit.id)
@@ -191,6 +205,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
                 (await repo_main_transfer_task.run(self.context)).data,
                 [],
             )
+            self.assertEqual((await publish_to_google_task.run(self.context)).data, [])
 
         with DateTimeSource.mock_current_time(between_visit_time, 80) as time:
             # Embargo period is finished for the first visit, but not the
@@ -203,16 +218,30 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
                 [],
             )
 
-            # After transferring the visit records, we can proceed.
+            # Transfer the visit records to allow dataset transfers to proceed.
             await DimensionRecordCopyTask(Visit, "embargo", "prompt_prep").run(self.context)
-            self.assertEqual(
+            await DimensionRecordCopyTask(Visit, "prompt_prep", "prompt_google_int").run(self.context)
+
+            # Datasets are not transferred to Google until after they are
+            # copied to prompt_prep.
+            self.assertEqual((await publish_to_google_task.run(self.context)).data, [])
+
+            # Pixel datasets should now be transferred from embargo to
+            # prompt_prep.
+            self.assertCountEqual(
                 (await unembargo_transfer_task.run(self.context)).data,
-                [pvi1.id],
+                [pvi1.id, unpublished_visit.id],
             )
-            # Visit 1 dataset was copied from embargo to prompt_prep.
+            # Visit 1 datasets were copied from embargo to prompt_prep.
             self.assertEqual(self.prompt_prep_butler.get(pvi1), 1)
             self.assertEqual(self.embargo_butler.get(pvi1), 1)
             self.assertNotEqual(self.prompt_prep_butler.getURI(pvi1), self.embargo_butler.getURI(pvi1))
+            self.assertEqual(self.prompt_prep_butler.get(unpublished_visit), 1)
+            self.assertEqual(self.embargo_butler.get(unpublished_visit), 1)
+            self.assertNotEqual(
+                self.prompt_prep_butler.getURI(unpublished_visit),
+                self.embargo_butler.getURI(unpublished_visit),
+            )
             # Visit 2 dataset wasn't copied yet -- it's still (barely) in the
             # embargo period.
             self.assertIsNone(self.prompt_prep_butler.get_dataset(pvi2.id))
@@ -220,10 +249,24 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             pvi1_state = await self._get_dataset_state(pvi1.id)
             self.assertEqual(pvi1_state.unembargo_time, time)
             self.assertEqual(pvi1_state.prompt_prep_status, DatasetLocationStatus.PRESENT)
-            # State for visit 2 is unmoidifed.
+            # State for visit 2 is unmodified.
             pvi2_state = await self._get_dataset_state(pvi2.id)
             self.assertIsNone(pvi2_state.unembargo_time)
             self.assertEqual(pvi2_state.prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
+
+            # We now publish only the dataset that has been configured as
+            # publishable.
+            self.assertEqual((await publish_to_google_task.run(self.context)).data, [pvi1.id])
+            self.assertIsNone(self.prompt_google_butler.get_dataset(unpublished_visit.id))
+            self.assertEqual(self.prompt_prep_butler.get(pvi1), 1)
+            # The Google repositories share file storage with prompt_prep, so
+            # these paths should be identical.
+            self.assertEqual(self.prompt_prep_butler.getURI(pvi1), self.prompt_google_butler.getURI(pvi1))
+            # Make sure that the dataset was added to the tagged collection.
+            self.assertEqual(
+                [pvi1],
+                self.prompt_google_butler.query_datasets(VISIT_DATASET_TYPE, OUTPUT_TAGGED_COLLECTION),
+            )
 
     async def test_unembargo_missing_datasets(self) -> None:
         """Test the behavior of unembargo when datasets are missing."""
@@ -300,6 +343,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         # Transfer required 'group' records.
         await DimensionRecordCopyTask(Group, "embargo", "prompt_prep").run(self.context)
         await DimensionRecordCopyTask(Group, "prompt_prep", "/repo/main").run(self.context)
+        await DimensionRecordCopyTask(Group, "prompt_prep", "prompt_google_int").run(self.context)
         # Copy the dataset to the target Butler.  This simulates the case where
         # unembargo failed partway through, after copying a dataset but before
         # updating the state DB.  Or someone could have transferred a dataset
@@ -329,6 +373,19 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         state = await self._get_dataset_state(ref.id)
         self.assertEqual(self.main_butler.get(ref), 1)
         self.assertEqual(state.repo_main_status, DatasetLocationStatus.PRESENT)
+
+        # And the transfer to Google, which doesn't copy files but does
+        # copy database entries.
+        self.prompt_google_butler.transfer_from(
+            self.prompt_prep_butler, [ref], transfer="unsafe_direct", register_dataset_types=True
+        )
+        self.assertEqual(
+            (await publish_to_google_task.run(self.context)).data,
+            [ref.id],
+        )
+        self.assertEqual(self.prompt_google_butler.get(ref), 1)
+        state = await self._get_dataset_state(ref.id)
+        self.assertEqual(state.google_int_status, DatasetLocationStatus.PRESENT)
 
     async def _get_dataset_state(self, dataset_id: UUID) -> Dataset:
         async with self.state_db.session() as session:

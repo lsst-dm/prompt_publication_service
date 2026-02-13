@@ -46,7 +46,7 @@ from lsst.prompt_publication_service.test_utils import (
     VISIT1,
     VISIT2,
     VISIT_DATASET_TYPE,
-    create_butler_repo,
+    create_empty_butler_repo,
     create_publication_state_db,
     load_base_dimension_data,
     load_visit_dimension_data,
@@ -56,7 +56,7 @@ from lsst.prompt_publication_service.test_utils import (
 
 class TestRegistration(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
-        repo = self.enterContext(create_butler_repo())
+        repo = self.enterContext(create_empty_butler_repo())
         self.butler = self.enterContext(Butler.from_config(repo, run="run"))
         load_base_dimension_data(self.butler)
         load_visit_dimension_data(self.butler)
