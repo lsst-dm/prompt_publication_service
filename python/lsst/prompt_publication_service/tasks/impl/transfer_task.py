@@ -19,8 +19,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 import asyncio
-from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import batched
 from typing import Awaitable, Callable, Literal
@@ -44,9 +45,16 @@ from ...schema import (
     Visit,
 )
 from ..base import Task, TaskContext, TaskRunResult
-from .process_pool import WorkerTaskContext
 
 _LOG = get_global_logger()
+
+
+@dataclass(frozen=True)
+class DatasetTransferResult:
+    missing_datasets: list[UUID]
+    """Datasets that were not found in the source repository."""
+    transferred_datasets: list[UUID]
+    """Datasets that were successfully transferred to the target repository."""
 
 
 @dataclass(frozen=True)
@@ -63,6 +71,10 @@ class TransferConfig:
     """Function that will be called to find the UUIDs of the datasets that
     will be transferred.
     """
+    dataset_transfer_function: Callable[
+        [TaskContext, TransferConfig, tuple[DatasetId, ...]], Awaitable[DatasetTransferResult]
+    ]
+    """Function called to execute the actual transfer of datasets."""
     batch_size: int
     """Maximum number of datasets to transfer in a single batch."""
     max_concurrency: int
@@ -72,14 +84,6 @@ class TransferConfig:
     this transfer.  If not `None, this will be set to the current time when a
     dataset is transferred successfully.
     """
-
-
-@dataclass(frozen=True)
-class _DatasetTransferResult:
-    missing_datasets: list[UUID]
-    """Datasets that were not found in the source repository."""
-    transferred_datasets: list[UUID]
-    """Datasets that were successfully transferred to the target repository."""
 
 
 class TransferTask(Task):
@@ -115,13 +119,7 @@ class TransferTask(Task):
     async def _process_batch(self, ctx: TaskContext, batch: tuple[DatasetId, ...]) -> list[DatasetId]:
         async with self._concurrency_semaphore:
             self._log.info("starting butler transfer", count=len(batch))
-            result = await ctx.worker_pool.run(
-                _transfer_datasets,
-                source_repository=self._config.source_repository,
-                target_repository=self._config.target_repository,
-                transfer_mode=self._config.transfer_mode,
-                dataset_ids=batch,
-            )
+            result = await self._config.dataset_transfer_function(ctx, self._config, batch)
             self._log.info(
                 "completed butler transfer",
                 transferred=len(result.transferred_datasets),
@@ -134,7 +132,7 @@ class TransferTask(Task):
     async def _record_transfer_result(
         self,
         db: Database,
-        transfer_result: _DatasetTransferResult,
+        transfer_result: DatasetTransferResult,
     ) -> None:
         transfer_time = DateTimeSource.now()
         source_status_column = Dataset.get_status_column_name(self._config.source_repository)
@@ -168,54 +166,6 @@ class TransferTask(Task):
                 ],
             )
             await session.commit()
-
-
-def _transfer_datasets(
-    context: WorkerTaskContext,
-    source_repository: ButlerRepository,
-    target_repository: ButlerRepository,
-    transfer_mode: str,
-    dataset_ids: Iterable[UUID],
-) -> _DatasetTransferResult:
-    """Transfer the given datasets from one Butler repository to another.  This
-    function will be run in another process, via ProcessPoolExecutor.
-    """
-    dataset_ids = frozenset(dataset_ids)
-    log = context.log.bind(
-        task="dataset transfer",
-        source_repository=source_repository,
-        target_repository=target_repository,
-    )
-    with (
-        context.butler_factory.create_butler(source_repository) as source_butler,
-        context.butler_factory.create_butler(target_repository) as target_butler,
-    ):
-        datasets = source_butler.get_many_datasets(dataset_ids)
-        found_ids = frozenset(ref.id for ref in datasets)
-        # Dataset IDs that are not known to the Butler at all.
-        missing_ids = dataset_ids - found_ids
-        if missing_ids:
-            log.warning("Datasets were not found in Butler registry", missing_ids=missing_ids)
-
-        completed_refs = target_butler.transfer_from(
-            source_butler, datasets, transfer_mode, register_dataset_types=True
-        )
-        completed_ids = frozenset(ref.id for ref in completed_refs)
-
-        # Dataset IDs that are known to the Butler "registry", but for
-        # which there are no corresponding file records in the Butler
-        # "datastore".
-        missing_datastore_entries = found_ids - completed_ids
-        if missing_datastore_entries:
-            log.warning(
-                "Datasets were not found in Butler datastore",
-                missing_datastore_entries=missing_datastore_entries,
-            )
-
-        return _DatasetTransferResult(
-            missing_datasets=list(missing_ids.union(missing_datastore_entries)),
-            transferred_datasets=list(completed_ids),
-        )
 
 
 MAX_DATASETS_PER_QUERY = 1_000_000
