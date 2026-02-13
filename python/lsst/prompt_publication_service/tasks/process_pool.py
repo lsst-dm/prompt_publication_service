@@ -28,9 +28,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
 import multiprocessing
+from structlog.stdlib import BoundLogger
 from typing import Concatenate
 
 from lsst.daf.butler import LabeledButlerFactory
+from ..logging import get_logger
 
 
 @contextmanager
@@ -46,6 +48,7 @@ def initialize_worker_pool(butler_repos: dict[str, str]) -> Iterator[WorkerPool]
 @dataclass(frozen=True)
 class WorkerTaskContext:
     butler_factory: LabeledButlerFactory
+    log: BoundLogger
 
 
 type WorkerFunction[**P, T] = Callable[Concatenate[WorkerTaskContext, P], T]
@@ -74,7 +77,7 @@ class WorkerPool:
     @classmethod
     def _initialize_process_pool_context(cls, butler_repos: dict[str, str]) -> None:
         cls._WORKER_TASK_CONTEXT = WorkerTaskContext(
-            butler_factory=LabeledButlerFactory(butler_repos, writeable=True)
+            butler_factory=LabeledButlerFactory(butler_repos, writeable=True), log=get_logger()
         )
 
     @classmethod

@@ -28,7 +28,6 @@ from typing import Literal, Callable, Awaitable
 from uuid import UUID
 
 from sqlalchemy import select, union_all, Select, update
-from structlog.stdlib import BoundLogger
 
 from lsst.daf.butler import DatasetId
 from .process_pool import WorkerTaskContext
@@ -117,7 +116,6 @@ class TransferTask(Task):
             self._log.info("starting butler transfer", count=len(batch))
             result = await ctx.worker_pool.run(
                 _transfer_datasets,
-                log=self._log,
                 source_repository=self._config.source_repository,
                 target_repository=self._config.target_repository,
                 transfer_mode=self._config.transfer_mode,
@@ -173,7 +171,6 @@ class TransferTask(Task):
 
 def _transfer_datasets(
     context: WorkerTaskContext,
-    log: BoundLogger,
     source_repository: ButlerRepository,
     target_repository: ButlerRepository,
     transfer_mode: str,
@@ -183,6 +180,11 @@ def _transfer_datasets(
     function will be run in another process, via ProcessPoolExecutor.
     """
     dataset_ids = frozenset(dataset_ids)
+    log = context.log.bind(
+        task="dataset transfer",
+        source_repository=source_repository,
+        target_repository=target_repository,
+    )
     with (
         context.butler_factory.create_butler(source_repository) as source_butler,
         context.butler_factory.create_butler(target_repository) as target_butler,
