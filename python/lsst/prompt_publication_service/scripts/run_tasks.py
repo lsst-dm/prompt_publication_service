@@ -22,14 +22,15 @@
 import asyncio
 
 import click
-from lsst.daf.butler import LabeledButlerFactory, ButlerRepoIndex
-from ..tasks.process_pool import initialize_worker_pool
+
+from lsst.daf.butler import ButlerRepoIndex, LabeledButlerFactory
 
 from ..configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from ..database import Database
-from ..tasks.base import TaskContext
-from ..tasks.all import ALL_TASKS
 from ..run_tasks import run_tasks
+from ..tasks.all import ALL_TASKS
+from ..tasks.base import TaskContext
+from ..tasks.process_pool import initialize_worker_pool
 from ._utils import split_dataset_types_argument
 
 

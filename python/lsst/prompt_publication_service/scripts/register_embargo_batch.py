@@ -22,6 +22,7 @@
 import asyncio
 
 import click
+
 from lsst.daf.butler import Butler
 from lsst.resources import ResourcePath
 

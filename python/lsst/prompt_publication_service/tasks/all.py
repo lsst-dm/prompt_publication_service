@@ -19,10 +19,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from ..schema import Exposure, Group, Visit
 from .base import Task
-from .transfer import unembargo_transfer_task, repo_main_transfer_task
 from .dimension_record_copy import DimensionRecordCopyTask
-from ..schema import Visit, Group, Exposure
+from .transfer import repo_main_transfer_task, unembargo_transfer_task
 
 _DIMENSION_TABLES = (Visit, Group, Exposure)
 

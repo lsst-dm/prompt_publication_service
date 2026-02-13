@@ -24,9 +24,10 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
+import pydantic
+
 from lsst.daf.butler import Butler
 from lsst.resources import ResourcePath
-import pydantic
 
 from ..database import Database
 from ..register import register_dataset_batch_file

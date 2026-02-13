@@ -23,33 +23,33 @@ import unittest
 from datetime import timedelta
 from uuid import UUID
 
-from lsst.daf.butler import Butler
+from sqlalchemy import select
 
+from lsst.daf.butler import Butler
+from lsst.prompt_publication_service.date_time_source import DateTimeSource
 from lsst.prompt_publication_service.register import register_embargo_datasets
 from lsst.prompt_publication_service.schema import (
-    DatasetOrigin,
     Dataset,
     DatasetLocationStatus,
+    DatasetOrigin,
     Exposure,
     Group,
     Visit,
 )
 from lsst.prompt_publication_service.tasks.dimension_record_copy import DimensionRecordCopyTask
-from lsst.prompt_publication_service.tasks.transfer import unembargo_transfer_task, repo_main_transfer_task
+from lsst.prompt_publication_service.tasks.transfer import repo_main_transfer_task, unembargo_transfer_task
 from lsst.prompt_publication_service.test_utils import (
-    setup_task_context_with_empty_repos,
+    EXPOSURE1,
+    EXPOSURE_DATASET_TYPE,
+    NONVISIT_DATASET_TYPE,
+    VISIT1,
+    VISIT2,
+    VISIT_DATASET_TYPE,
     load_base_dimension_data,
     load_visit_dimension_data,
     register_test_dataset_types,
-    EXPOSURE_DATASET_TYPE,
-    EXPOSURE1,
-    NONVISIT_DATASET_TYPE,
-    VISIT_DATASET_TYPE,
-    VISIT1,
-    VISIT2,
+    setup_task_context_with_empty_repos,
 )
-from lsst.prompt_publication_service.date_time_source import DateTimeSource
-from sqlalchemy import select
 
 
 class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):

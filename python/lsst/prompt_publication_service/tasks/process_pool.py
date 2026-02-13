@@ -22,16 +22,18 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator, Callable
+import multiprocessing
+from collections.abc import Callable, Iterator
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
-import multiprocessing
-from structlog.stdlib import BoundLogger
 from typing import Concatenate
 
+from structlog.stdlib import BoundLogger
+
 from lsst.daf.butler import LabeledButlerFactory
+
 from ..logging import get_logger
 
 

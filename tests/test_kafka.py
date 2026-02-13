@@ -19,16 +19,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from pathlib import Path
-from tempfile import TemporaryDirectory
 import json
 import unittest
 import unittest.mock
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from sqlalchemy import select
 
-from lsst.prompt_publication_service.ingest.kafka_reader import KafkaReader
 from lsst.prompt_publication_service.ingest.ingester import Ingester
+from lsst.prompt_publication_service.ingest.kafka_reader import KafkaReader
 from lsst.prompt_publication_service.schema import Dataset
 from lsst.prompt_publication_service.test_utils import (
     VISIT1,

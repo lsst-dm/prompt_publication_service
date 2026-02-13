@@ -19,20 +19,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import tempfile
-from collections.abc import AsyncIterator, Iterator, Iterable
-from contextlib import contextmanager, asynccontextmanager, AsyncExitStack
-from dataclasses import dataclass
 import datetime
+import tempfile
+from collections.abc import AsyncIterator, Iterable, Iterator
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from lsst.daf.butler import Butler, DatasetType, LabeledButlerFactory
-from .configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
-from .tasks.process_pool import initialize_worker_pool
 
+from .configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from .database import Database
 from .schema import ButlerRepository
 from .tasks.base import TaskContext
+from .tasks.process_pool import initialize_worker_pool
 
 
 @contextmanager

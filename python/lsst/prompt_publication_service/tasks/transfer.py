@@ -24,28 +24,28 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import timedelta
 from itertools import batched
-from typing import Literal, Callable, Awaitable
+from typing import Awaitable, Callable, Literal
 from uuid import UUID
 
-from sqlalchemy import select, union_all, Select, update
+from sqlalchemy import Select, select, union_all, update
 
 from lsst.daf.butler import DatasetId
-from .process_pool import WorkerTaskContext
 
 from ..config import DatasetTypeConfiguration
 from ..database import Database
+from ..date_time_source import DateTimeSource
+from ..logging import get_global_logger
 from ..schema import (
+    ButlerRepository,
     Dataset,
+    DatasetLocationStatus,
+    DimensionRecordStatus,
+    Exposure,
     Group,
     Visit,
-    Exposure,
-    DatasetLocationStatus,
-    ButlerRepository,
-    DimensionRecordStatus,
 )
-from ..date_time_source import DateTimeSource
-from .base import TaskContext, TaskRunResult, Task
-from ..logging import get_global_logger
+from .base import Task, TaskContext, TaskRunResult
+from .process_pool import WorkerTaskContext
 
 _LOG = get_global_logger()
 

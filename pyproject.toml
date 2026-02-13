@@ -10,6 +10,7 @@ exclude = [
 ]
 
 [tool.ruff.lint]
+extend-select = ["I"]
 ignore = []
 
 [tool.ruff.lint.isort]

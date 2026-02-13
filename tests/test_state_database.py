@@ -19,38 +19,38 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from sqlalchemy import select
-from uuid import UUID
 import json
 import tempfile
 import unittest
+from uuid import UUID
 
+from sqlalchemy import select
 from structlog.testing import capture_logs
 
 from lsst.daf.butler import Butler
 from lsst.prompt_publication_service.register import register_dataset_batch_file
 from lsst.prompt_publication_service.schema import (
-    DatasetOrigin,
     Dataset,
-    Exposure,
-    Visit,
     DatasetLocationStatus,
+    DatasetOrigin,
     DimensionRecordStatus,
+    Exposure,
     UnknownDataset,
+    Visit,
 )
 from lsst.prompt_publication_service.test_utils import (
+    EXPOSURE1,
+    EXPOSURE2,
+    EXPOSURE_DATASET_TYPE,
+    NONVISIT_DATASET_TYPE,
+    VISIT1,
+    VISIT2,
+    VISIT_DATASET_TYPE,
     create_butler_repo,
     create_publication_state_db,
     load_base_dimension_data,
     load_visit_dimension_data,
     register_test_dataset_types,
-    EXPOSURE1,
-    EXPOSURE2,
-    VISIT1,
-    VISIT2,
-    VISIT_DATASET_TYPE,
-    NONVISIT_DATASET_TYPE,
-    EXPOSURE_DATASET_TYPE,
 )
 
 

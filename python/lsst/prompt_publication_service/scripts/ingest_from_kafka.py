@@ -20,9 +20,11 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+
 import click
 
 from lsst.daf.butler import Butler
+
 from ..database import Database
 from ..ingest.ingester import Ingester
 from ..ingest.kafka_reader import KafkaReader

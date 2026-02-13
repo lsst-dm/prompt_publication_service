@@ -20,7 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from dataclasses import dataclass
-from typing import Literal, Protocol, Awaitable
+from typing import Awaitable, Literal, Protocol
 
 from lsst.daf.butler import LabeledButlerFactory
 
