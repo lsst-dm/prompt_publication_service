@@ -21,12 +21,15 @@
 
 import asyncio
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lsst.daf.butler import LabeledButlerFactory
 
 from .configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from .database import Database
+from .ingest.ingester import Ingester
+from .ingest.kafka_reader import KafkaReader
 from .run_tasks import run_tasks
 from .tasks.all import ALL_TASKS
 from .tasks.base import TaskContext
@@ -41,6 +44,13 @@ class ServiceConfig(BaseSettings):
     main_repo_path: str
     prompt_prep_repo_path: str
     google_int_repo_path: str
+
+    kafka_server: str
+    kafka_topic: str
+    kafka_group_id: str
+    kafka_username: str
+    kafka_password: SecretStr
+    embargo_batch_file_directory: str
 
 
 async def main() -> None:
@@ -60,9 +70,31 @@ async def main() -> None:
         ) as butler_factory,
         initialize_worker_pool(repositories) as worker_pool,
     ):
-        async with Database(config.state_database_uri) as db:
-            context = TaskContext(PROMPT_PROCESSING_OUTPUT_CONFIG, butler_factory, db, worker_pool)
-            await run_tasks(context, ALL_TASKS)
+        async with Database(config.state_database_uri) as state_db, asyncio.TaskGroup() as tg:
+            context = TaskContext(PROMPT_PROCESSING_OUTPUT_CONFIG, butler_factory, state_db, worker_pool)
+            tg.create_task(run_tasks(context, ALL_TASKS))
+            tg.create_task(_ingest_from_kafka(config, state_db, butler_factory))
+
+
+async def _ingest_from_kafka(
+    config: ServiceConfig, state_db: Database, butler_factory: LabeledButlerFactory
+) -> None:
+    async with (
+        KafkaReader(
+            bootstrap_servers=config.kafka_server,
+            topic=config.kafka_topic,
+            group_id=config.kafka_group_id,
+            username=config.kafka_username,
+            password=config.kafka_password.get_secret_value(),
+        ) as kafka,
+    ):
+        butler = await asyncio.to_thread(butler_factory.create_butler, "embargo")
+        try:
+            ingester = Ingester(kafka, state_db, butler, config.embargo_batch_file_directory)
+            while True:
+                await ingester.process_one()
+        finally:
+            await asyncio.to_thread(butler.close)
 
 
 if __name__ == "__main__":
