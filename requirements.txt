@@ -2,6 +2,7 @@ aiokafka
 aiosqlite
 alembic
 click
+pydantic-settings
 sqlalchemy
 structlog
 lsst-daf-butler @ git+https://github.com/lsst/daf_butler@main
