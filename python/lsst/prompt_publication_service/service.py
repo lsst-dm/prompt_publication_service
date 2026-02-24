@@ -40,6 +40,7 @@ class ServiceConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="promptpub_")
 
     state_database_uri: str
+    state_database_password: SecretStr | None = None
     embargo_repo_path: str
     main_repo_path: str
     prompt_prep_repo_path: str
@@ -70,7 +71,15 @@ async def main() -> None:
         ) as butler_factory,
         initialize_worker_pool(repositories) as worker_pool,
     ):
-        async with Database(config.state_database_uri) as state_db, asyncio.TaskGroup() as tg:
+        db_password = (
+            None
+            if config.state_database_password is None
+            else config.state_database_password.get_secret_value()
+        )
+        async with (
+            Database(config.state_database_uri, password=db_password) as state_db,
+            asyncio.TaskGroup() as tg,
+        ):
             context = TaskContext(PROMPT_PROCESSING_OUTPUT_CONFIG, butler_factory, state_db, worker_pool)
             tg.create_task(run_tasks(context, ALL_TASKS))
             tg.create_task(_ingest_from_kafka(config, state_db, butler_factory))

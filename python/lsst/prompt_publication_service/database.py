@@ -1,7 +1,7 @@
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, AsyncIterator
 
-from sqlalchemy import Insert
+from sqlalchemy import Insert, make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -11,8 +11,9 @@ from .schema import Base
 class Database(AbstractAsyncContextManager):
     """Wrapper around a SQLAlchemy database connection."""
 
-    def __init__(self, database_uri: str) -> None:
-        self._engine = create_async_engine(database_uri, pool_pre_ping=True)
+    def __init__(self, database_uri: str, password: str | None = None) -> None:
+        url = make_url(database_uri).set(password=password)
+        self._engine = create_async_engine(url, pool_pre_ping=True)
         self._session_maker = async_sessionmaker(self._engine)
 
     async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
