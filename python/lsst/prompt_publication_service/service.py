@@ -40,21 +40,46 @@ class ServiceConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="promptpub_")
 
     state_database_uri: str
+    """SQLAlchemy connection URI for the Prompt Publication postgres
+    database.
+    """
     state_database_password: SecretStr | None = None
+    """Password for the postgres database.  If not set, will be read
+    from the Postgres password file.
+    """
     embargo_repo_path: str
+    """Path to the ``embargo`` Butler repository configuration file."""
     main_repo_path: str
+    """Path to the ``/repo/main`` Butler repository configuration file."""
     prompt_prep_repo_path: str
+    """Path to the ``prompt_prep`` Butler repository configuration file."""
     google_int_repo_path: str
+    """Path to the ``prompt`` Butler repository configuration file for the
+    Google integration test environment.
+    """
 
     kafka_server: str
+    """Kafka bootstrap server, as ``hostname:port``"""
     kafka_topic: str
+    """Kafka topic that will be used to consume dataset batch messages."""
     kafka_group_id: str
+    """Kafka consumer group ID that will be used to track read offsets.  Should
+    be set once for a deployment and never changed -- otherwise the service
+    will re-read topics from the beginning.
+    """
     kafka_username: str
+    """Username for connection to the Kafka cluster."""
     kafka_password: SecretStr
+    """Password for connection to the Kafka cluster."""
     embargo_batch_file_directory: str
+    """URI (in `lsst.resources.ResourcePath` format) to the directory where
+    lists of ingested datasets are written by the Prompt Processing Butler
+    Writer."""
 
 
 async def main() -> None:
+    """Top-level service application for prompt publication."""
+
     config = ServiceConfig()
 
     repositories = {
@@ -88,6 +113,9 @@ async def main() -> None:
 async def _ingest_from_kafka(
     config: ServiceConfig, state_db: Database, butler_factory: LabeledButlerFactory
 ) -> None:
+    """Background task that reads list of datasets from Kafka and
+    ingests them in the state database.
+    """
     async with (
         KafkaReader(
             bootstrap_servers=config.kafka_server,
