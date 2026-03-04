@@ -1,4 +1,4 @@
-name: Run mypy
+name: Run mypy and unit tests
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  mypy:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -17,3 +17,4 @@ jobs:
         with:
           version: 0.10.x
       - run: uv run --frozen mypy
+      - run: uv run --frozen pytest

@@ -65,4 +65,5 @@ lsst-pipe-base = { git = "https://github.com/lsst/pipe_base" }
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
+    "pytest>=9.0.2",
 ]
