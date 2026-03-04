@@ -19,23 +19,23 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 import asyncio
-from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import timedelta
 from itertools import batched
-from typing import Awaitable, Callable, Literal
+from typing import Awaitable, Callable
 from uuid import UUID
 
-from sqlalchemy import Select, select, union_all, update
+from sqlalchemy import Select, select, update
 
 from lsst.daf.butler import DatasetId
 
-from ..config import DatasetTypeConfiguration
-from ..database import Database
-from ..date_time_source import DateTimeSource
-from ..logging import get_global_logger
-from ..schema import (
+from ...config import DatasetTypeConfiguration
+from ...database import Database
+from ...date_time_source import DateTimeSource
+from ...logging import get_global_logger
+from ...schema import (
     ButlerRepository,
     Dataset,
     DatasetLocationStatus,
@@ -44,10 +44,17 @@ from ..schema import (
     Group,
     Visit,
 )
-from .base import Task, TaskContext, TaskRunResult
-from .process_pool import WorkerTaskContext
+from ..base import Task, TaskContext, TaskRunResult
 
 _LOG = get_global_logger()
+
+
+@dataclass(frozen=True)
+class DatasetTransferResult:
+    missing_datasets: list[UUID]
+    """Datasets that were not found in the source repository."""
+    transferred_datasets: list[UUID]
+    """Datasets that were successfully transferred to the target repository."""
 
 
 @dataclass(frozen=True)
@@ -58,12 +65,14 @@ class TransferConfig:
     """
     target_repository: ButlerRepository
     """Label of the Butler repository that datasets will be transferred to."""
-    transfer_mode: Literal["copy", "unsafe_direct"]
-    """Butler transfer mode, see `lsst.daf.butler.Butler.transfer_from`."""
     dataset_lookup_function: Callable[[DatasetTypeConfiguration, Database], Awaitable[list[DatasetId]]]
     """Function that will be called to find the UUIDs of the datasets that
     will be transferred.
     """
+    dataset_transfer_function: Callable[
+        [TaskContext, TransferConfig, tuple[DatasetId, ...]], Awaitable[DatasetTransferResult]
+    ]
+    """Function called to execute the actual transfer of datasets."""
     batch_size: int
     """Maximum number of datasets to transfer in a single batch."""
     max_concurrency: int
@@ -73,14 +82,6 @@ class TransferConfig:
     this transfer.  If not `None, this will be set to the current time when a
     dataset is transferred successfully.
     """
-
-
-@dataclass(frozen=True)
-class _DatasetTransferResult:
-    missing_datasets: list[UUID]
-    """Datasets that were not found in the source repository."""
-    transferred_datasets: list[UUID]
-    """Datasets that were successfully transferred to the target repository."""
 
 
 class TransferTask(Task):
@@ -116,13 +117,7 @@ class TransferTask(Task):
     async def _process_batch(self, ctx: TaskContext, batch: tuple[DatasetId, ...]) -> list[DatasetId]:
         async with self._concurrency_semaphore:
             self._log.info("starting butler transfer", count=len(batch))
-            result = await ctx.worker_pool.run(
-                _transfer_datasets,
-                source_repository=self._config.source_repository,
-                target_repository=self._config.target_repository,
-                transfer_mode=self._config.transfer_mode,
-                dataset_ids=batch,
-            )
+            result = await self._config.dataset_transfer_function(ctx, self._config, batch)
             self._log.info(
                 "completed butler transfer",
                 transferred=len(result.transferred_datasets),
@@ -135,7 +130,7 @@ class TransferTask(Task):
     async def _record_transfer_result(
         self,
         db: Database,
-        transfer_result: _DatasetTransferResult,
+        transfer_result: DatasetTransferResult,
     ) -> None:
         transfer_time = DateTimeSource.now()
         source_status_column = Dataset.get_status_column_name(self._config.source_repository)
@@ -171,58 +166,10 @@ class TransferTask(Task):
             await session.commit()
 
 
-def _transfer_datasets(
-    context: WorkerTaskContext,
-    source_repository: ButlerRepository,
-    target_repository: ButlerRepository,
-    transfer_mode: str,
-    dataset_ids: Iterable[UUID],
-) -> _DatasetTransferResult:
-    """Transfer the given datasets from one Butler repository to another.  This
-    function will be run in another process, via ProcessPoolExecutor.
-    """
-    dataset_ids = frozenset(dataset_ids)
-    log = context.log.bind(
-        task="dataset transfer",
-        source_repository=source_repository,
-        target_repository=target_repository,
-    )
-    with (
-        context.butler_factory.create_butler(source_repository) as source_butler,
-        context.butler_factory.create_butler(target_repository) as target_butler,
-    ):
-        datasets = source_butler.get_many_datasets(dataset_ids)
-        found_ids = frozenset(ref.id for ref in datasets)
-        # Dataset IDs that are not known to the Butler at all.
-        missing_ids = dataset_ids - found_ids
-        if missing_ids:
-            log.warning("Datasets were not found in Butler registry", missing_ids=missing_ids)
-
-        completed_refs = target_butler.transfer_from(
-            source_butler, datasets, transfer_mode, register_dataset_types=True
-        )
-        completed_ids = frozenset(ref.id for ref in completed_refs)
-
-        # Dataset IDs that are known to the Butler "registry", but for
-        # which there are no corresponding file records in the Butler
-        # "datastore".
-        missing_datastore_entries = found_ids - completed_ids
-        if missing_datastore_entries:
-            log.warning(
-                "Datasets were not found in Butler datastore",
-                missing_datastore_entries=missing_datastore_entries,
-            )
-
-        return _DatasetTransferResult(
-            missing_datasets=list(missing_ids.union(missing_datastore_entries)),
-            transferred_datasets=list(completed_ids),
-        )
+MAX_DATASETS_PER_QUERY = 1_000_000
 
 
-_MAX_DATASETS_PER_QUERY = 1_000_000
-
-
-def _create_transfer_lookup_query(
+def create_transfer_lookup_query(
     source_repository: ButlerRepository, target_repository: ButlerRepository
 ) -> Select[tuple[UUID]]:
     """Returns a SQL query against the Dataset table that finds the dataset
@@ -248,64 +195,3 @@ def _create_transfer_lookup_query(
             | (Group.get_status_column(target_repository) != DimensionRecordStatus.NEVER_PRESENT),
         )
     )
-
-
-async def _find_datasets_to_unembargo(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
-    queries: list[Select[tuple[UUID]]] = []
-    for group in config.group_by(lambda c: c.embargo_period_hours):
-        query = _create_transfer_lookup_query("embargo", "prompt_prep").where(
-            Dataset.origin == group.origin,
-            Dataset.dataset_type.in_(group.dataset_types),
-        )
-        embargo_hours = group.key
-        if embargo_hours > 0:
-            unembargo_time = DateTimeSource.now() - timedelta(hours=embargo_hours)
-            # Note: this will not find datasets that are tracked by `exposure`
-            # instead of `visit`.  At the time of writing no exposure datasets
-            # with embargo restrictions are planned for publication.  If that
-            # changes, this will also need to test against the time from the
-            # `Exposure` table.
-            query = query.where(Visit.time < unembargo_time)
-        queries.append(query)
-
-    async with db.session() as session:
-        combined_query = union_all(*queries).limit(_MAX_DATASETS_PER_QUERY)
-        dataset_ids = await session.scalars(combined_query)
-    return list(dataset_ids)
-
-
-unembargo_transfer_task = TransferTask(
-    TransferConfig(
-        source_repository="embargo",
-        target_repository="prompt_prep",
-        transfer_mode="copy",
-        dataset_lookup_function=_find_datasets_to_unembargo,
-        # File copy can be slow and unreliable, and Butler currently holds DB
-        # transactions open during the file transfer process.  So it's best to
-        # copy only a handful of files at a time.
-        batch_size=100,
-        max_concurrency=16,
-        target_time_column="unembargo_time",
-    )
-)
-
-
-async def _find_datasets_to_copy_to_repo_main(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
-    async with db.session() as session:
-        query = _create_transfer_lookup_query("prompt_prep", "/repo/main").limit(_MAX_DATASETS_PER_QUERY)
-        async with db.session() as session:
-            dataset_ids = await session.scalars(query)
-            return list(dataset_ids)
-
-
-repo_main_transfer_task = TransferTask(
-    TransferConfig(
-        source_repository="prompt_prep",
-        target_repository="/repo/main",
-        transfer_mode="unsafe_direct",
-        dataset_lookup_function=_find_datasets_to_copy_to_repo_main,
-        batch_size=20000,
-        max_concurrency=2,
-        target_time_column=None,
-    )
-)

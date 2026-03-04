@@ -26,7 +26,7 @@ from lsst.daf.butler import LabeledButlerFactory
 
 from ..config import DatasetTypeConfiguration
 from ..database import Database
-from .process_pool import WorkerPool
+from .impl.process_pool import WorkerPool
 
 
 @dataclass(frozen=True)

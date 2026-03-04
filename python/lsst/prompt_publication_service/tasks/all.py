@@ -22,13 +22,17 @@
 from ..schema import Exposure, Group, Visit
 from .base import Task
 from .dimension_record_copy import DimensionRecordCopyTask
-from .transfer import repo_main_transfer_task, unembargo_transfer_task
+from .publish_to_google import publish_to_google_task
+from .repo_main import repo_main_transfer_task
+from .unembargo import unembargo_transfer_task
 
 _DIMENSION_TABLES = (Visit, Group, Exposure)
 
 ALL_TASKS: tuple[Task, ...] = (
     unembargo_transfer_task,
     repo_main_transfer_task,
+    publish_to_google_task,
     *(DimensionRecordCopyTask(table, "embargo", "prompt_prep") for table in _DIMENSION_TABLES),
     *(DimensionRecordCopyTask(table, "prompt_prep", "/repo/main") for table in _DIMENSION_TABLES),
+    *(DimensionRecordCopyTask(table, "prompt_prep", "prompt_google_int") for table in _DIMENSION_TABLES),
 )

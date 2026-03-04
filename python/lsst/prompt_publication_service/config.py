@@ -60,6 +60,16 @@ class DatasetTypeConfiguration:
             {origin: {dt: self._config[origin][dt] for dt in dataset_types} for origin in self._config.keys()}
         )
 
+    def filter(self, filter_func: Callable[[DatasetTypeConfigurationItem], bool]) -> DatasetTypeConfiguration:
+        output: dict[DatasetOrigin, dict[str, DatasetTypeConfigurationItem]] = defaultdict(dict)
+
+        for origin, origin_config in self._config.items():
+            for dataset_type, config in origin_config.items():
+                if filter_func(config):
+                    output[origin][dataset_type] = config
+
+        return DatasetTypeConfiguration(output)
+
     def group_by[_T](
         self, key_func: Callable[[DatasetTypeConfigurationItem], _T]
     ) -> list[ConfigurationGroup[_T]]:
@@ -76,3 +86,12 @@ class DatasetTypeConfiguration:
                 output.append(ConfigurationGroup(key, origin, sorted(dataset_types)))
 
         return output
+
+    def group_by_origin(self) -> list[ConfigurationGroup[None]]:
+        groups = []
+
+        for origin, origin_config in self._config.items():
+            dataset_types = list(origin_config.keys())
+            groups.append(ConfigurationGroup(None, origin, dataset_types))
+
+        return groups
