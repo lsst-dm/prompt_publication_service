@@ -1,4 +1,4 @@
-name: Check Python formatting
+name: Lint
 
 on:
   push:

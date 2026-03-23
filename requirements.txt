@@ -1,8 +1,0 @@
-aiokafka
-aiosqlite
-alembic
-click
-sqlalchemy
-structlog
-lsst-daf-butler @ git+https://github.com/lsst/daf_butler@main
-lsst-pipe-base
