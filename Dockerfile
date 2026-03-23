@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+#
 # Based on the fastapi_safir_app template from
 # https://github.com/lsst/templates
 
@@ -36,7 +38,7 @@ WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-default-groups --compile-bytecode --no-install-project
+    uv sync --frozen --no-dev --compile-bytecode --no-install-project
 
 FROM base-image AS runtime-image
 
@@ -58,4 +60,5 @@ USER appuser
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Run the application.
-CMD ["python", "-m", "lsst.prompt_publication_service.service"]
+ENTRYPOINT ["python3", "-m"]
+CMD ["lsst.prompt_publication_service.service"]
