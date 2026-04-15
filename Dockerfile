@@ -11,6 +11,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
 apt-get -y upgrade
+# Required for psycopg2 at runtime.
+apt-get -y install --no-install-recommends libpq5
 apt-get clean
 ENDRUN
 
@@ -19,7 +21,8 @@ FROM base-image AS install-image
 RUN <<ENDRUN
 set -e
 export DEBIAN_FRONTEND=noninteractive
-apt-get -y install git
+# Required to build psycopg2.
+apt-get -y install build-essential git libpq-dev libpython3-dev
 ENDRUN
 
 # Install uv.

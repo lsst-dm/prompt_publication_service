@@ -6,7 +6,7 @@ dependencies = [
     "aiokafka>=0.13.0",
     "alembic>=1.18.4",
     "click>=8.3.1",
-    "lsst-daf-butler",
+    "lsst-daf-butler[postgres]",
     "lsst-pipe-base",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
