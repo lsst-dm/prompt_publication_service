@@ -62,6 +62,9 @@ USER appuser
 # Make sure we use the virtualenv.
 ENV PATH="/app/.venv/bin:$PATH"
 
+# Make logs output immediately.
+ENV PYTHONUNBUFFERED=1
+
 # Run the application.
 ENTRYPOINT ["python3", "-m"]
 CMD ["lsst.prompt_publication_service.service"]
