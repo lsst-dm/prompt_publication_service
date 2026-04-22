@@ -5,6 +5,7 @@ requires-python = "~= 3.13.0"
 dependencies = [
     "aiokafka>=0.13.0",
     "alembic>=1.18.4",
+    "backoff>=2.2.1",
     "click>=8.3.1",
     "lsst-daf-butler[postgres]",
     "lsst-pipe-base",
