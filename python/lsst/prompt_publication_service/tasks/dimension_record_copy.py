@@ -23,6 +23,8 @@ import asyncio
 from collections.abc import Iterable
 from itertools import batched
 
+import backoff
+import sqlalchemy.exc
 from sqlalchemy import select
 
 from lsst.daf.butler import DataCoordinate, LabeledButlerFactory
@@ -86,6 +88,10 @@ class DimensionRecordCopyTask(Task):
         async with state_database.session() as session:
             return list(await session.scalars(query))
 
+    # Butler.transfer_dimension_records_from() is prone to database-level row
+    # lock deadlocks.  Postgres will kill our query when deadlock occurs, and
+    # we need to retry.
+    @backoff.on_exception(backoff.expo, sqlalchemy.exc.OperationalError, max_tries=5, max_time=60)
     def _transfer_dimension_records(
         self, butler_factory: LabeledButlerFactory, rows: Iterable[DimensionRecordRow]
     ) -> None:
