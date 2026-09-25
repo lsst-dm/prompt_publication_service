@@ -40,8 +40,6 @@ from ...schema import (
     Dataset,
     DatasetLocationStatus,
     DimensionRecordStatus,
-    Exposure,
-    Group,
     Visit,
 )
 from ..base import Task, TaskContext, TaskRunResult
@@ -180,18 +178,12 @@ def create_transfer_lookup_query(
     return (
         select(Dataset.id)
         .join(Visit, isouter=True)
-        .join(Exposure, isouter=True)
-        .join(Group, isouter=True)
         .where(
             Dataset.get_status_column(source_repository) == DatasetLocationStatus.PRESENT,
             Dataset.get_status_column(target_repository) == DatasetLocationStatus.NEVER_PRESENT,
-            # Make sure any visit or exposure records needed by the dataset
+            # Make sure any visit, exposure or group records needed by the dataset
             # have already been loaded into the target repository.
-            Dataset.visit.is_(None)
-            | (Visit.get_status_column(target_repository) != DimensionRecordStatus.NEVER_PRESENT),
-            Dataset.exposure.is_(None)
-            | (Exposure.get_status_column(target_repository) != DimensionRecordStatus.NEVER_PRESENT),
-            Dataset.group.is_(None)
-            | (Group.get_status_column(target_repository) != DimensionRecordStatus.NEVER_PRESENT),
+            Dataset.visit.is_(None) | Visit.get_status_column(target_repository)
+            != DimensionRecordStatus.NEVER_PRESENT,
         )
     )

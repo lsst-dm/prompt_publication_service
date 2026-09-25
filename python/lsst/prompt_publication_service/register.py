@@ -19,8 +19,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
+
 import asyncio
 import datetime
+from collections.abc import Iterable
 from uuid import UUID
 
 import pydantic
@@ -30,7 +33,7 @@ from lsst.resources import ResourcePath
 
 from .database import Database
 from .logging import get_global_logger
-from .schema import Dataset, DatasetLocationStatus, DatasetOrigin, Exposure, Group, UnknownDataset, Visit
+from .schema import Dataset, DatasetLocationStatus, DatasetOrigin, UnknownDataset, Visit
 
 _LOG = get_global_logger()
 
@@ -118,57 +121,20 @@ async def register_embargo_datasets(
     if len(datasets) == 0:
         return
 
-    visit_records = await _find_matching_dimension_records(source_butler, "visit", datasets)
-    visit_rows = [_convert_visit_record_to_visit_row(record) for record in visit_records]
-
-    exposure_records = await _find_matching_dimension_records(source_butler, "exposure", datasets)
-    exposure_rows = [_convert_exposure_record_to_exposure_row(record) for record in exposure_records]
-
-    group_ids = _find_matching_data_ids("group", datasets)
-    group_rows = [_convert_group_id_to_group_row(id) for id in group_ids]
-
-    dataset_rows = [_convert_ref_to_dataset_row(ref, origin) for ref in datasets]
+    visit_mapper = await asyncio.to_thread(_VisitMapper, source_butler, datasets)
+    visit_rows = [
+        _convert_visit_record_to_visit_row(record) for record in visit_mapper.get_all_visit_records()
+    ]
+    dataset_rows = [_convert_ref_to_dataset_row(ref, origin, visit_mapper) for ref in datasets]
     async with db.session() as session:
         if visit_rows:
             await session.execute(db.insert_if_not_exists(Visit), visit_rows)
-        if exposure_rows:
-            await session.execute(db.insert_if_not_exists(Exposure), exposure_rows)
-        if group_rows:
-            await session.execute(db.insert_if_not_exists(Group), group_rows)
         if missing:
             unknown_rows = [{"id": id, "origin": origin, "error": error} for id, error in missing.items()]
             await session.execute(db.insert_if_not_exists(UnknownDataset), unknown_rows)
         if dataset_rows:
             await session.execute(db.insert_if_not_exists(Dataset), dataset_rows)
         await session.commit()
-
-
-def _find_matching_data_ids(dimension: str, datasets: list[DatasetRef]) -> set[DataCoordinate]:
-    data_ids: set[DataCoordinate] = set()
-    for ref in datasets:
-        if dimension in ref.datasetType.dimensions.required:
-            data_ids.add(ref.dataId.subset([dimension]))
-    return data_ids
-
-
-async def _find_matching_dimension_records(
-    source_butler: Butler, dimension: str, datasets: list[DatasetRef]
-) -> list[DimensionRecord]:
-    """Look up the Butler dimension records for the given ``dimension``,
-    associated with the given ``datasets``.
-    """
-    data_ids = _find_matching_data_ids(dimension, datasets)
-    if data_ids:
-        return await asyncio.to_thread(_get_dimension_records, source_butler, dimension, data_ids)
-    else:
-        return []
-
-
-def _get_dimension_records(
-    butler: Butler, dimension: str, data_ids: set[DataCoordinate]
-) -> list[DimensionRecord]:
-    with butler.query() as query:
-        return list(query.join_data_coordinates(data_ids).dimension_records(dimension))
 
 
 def _convert_butler_timespan_to_datetime(timespan: Timespan | None) -> datetime.datetime | None:
@@ -180,44 +146,19 @@ def _convert_butler_timespan_to_datetime(timespan: Timespan | None) -> datetime.
 
 
 def _convert_visit_record_to_visit_row(record: DimensionRecord) -> dict:
-    return {"id": record.dataId["visit"], **_convert_common_dimension_columns(record)}
-
-
-def _convert_exposure_record_to_exposure_row(record: DimensionRecord) -> dict:
-    # can_see_sky can be NULL in the Butler database.  NULL means "unknown
-    # whether the sky was visible", so for purposes of unembargo we have to
-    # assume yes.
-    can_see_sky: bool | None = record.get("can_see_sky")
-    if can_see_sky is None:
-        can_see_sky = True
-
     return {
-        "id": record.dataId["exposure"],
-        "can_see_sky": can_see_sky,
-        **_convert_common_dimension_columns(record),
-    }
-
-
-def _convert_group_id_to_group_row(id: DataCoordinate) -> dict:
-    return {
-        "id": id["group"],
-        "instrument": id["instrument"],
-    }
-
-
-def _convert_common_dimension_columns(record: DimensionRecord) -> dict:
-    return {
+        "id": record.dataId["visit"],
         "instrument": record.dataId["instrument"],
         "day_obs": record.get("day_obs"),
         "time": _convert_butler_timespan_to_datetime(record.timespan),
     }
 
 
-def _convert_ref_to_dataset_row(ref: DatasetRef, origin: DatasetOrigin) -> dict:
+def _convert_ref_to_dataset_row(ref: DatasetRef, origin: DatasetOrigin, visit_mapper: _VisitMapper) -> dict:
     # Extract any leftover dimension primary keys that aren't already
     # represented as one of the columns in the dataset table.
     butler_data_id = dict(ref.dataId.required)
-    for captured_dimension in ("instrument", "visit", "exposure", "group"):
+    for captured_dimension in ("instrument", "visit"):
         butler_data_id.pop(captured_dimension, None)
 
     return {
@@ -225,9 +166,120 @@ def _convert_ref_to_dataset_row(ref: DatasetRef, origin: DatasetOrigin) -> dict:
         "origin": origin,
         "dataset_type": ref.datasetType.name,
         "instrument": ref.dataId.get("instrument"),
-        "visit": ref.dataId.get("visit"),
-        "exposure": ref.dataId.get("exposure"),
-        "group": ref.dataId.required.get("group"),
+        "visit": visit_mapper.get_visit_id(ref),
         "butler_data_id": butler_data_id,
         "embargo_status": DatasetLocationStatus.PRESENT,
     }
+
+
+class _VisitMapper:
+    """Provides a mapping from Butler "exposure" and "group" dimensions to the
+    corresponding "visit" records.
+
+    Parameters
+    ----------
+    butler
+        Butler instance that will be used to look up the mapping.
+    datasets
+        List of datasets that we will look up the visit records for.
+
+    Notes
+    -----
+    Butler has three seperate dimensions that map to the concept of "visit":
+    "visit", "exposure", and "group".  In Prompt Processing, group
+    corresponds 1:1 with exposure, and exposure corresponds 1:1 with
+    visit.  For the purpose of publication, we want to identify everything by
+    visit, so we look up the visits corresponding to these other dimensions
+    here.
+    """
+
+    def __init__(self, butler: Butler, datasets: list[DatasetRef]) -> None:
+        group_ids = _find_matching_data_ids("group", datasets)
+        exposure_ids = _find_matching_data_ids("exposure", datasets)
+        visit_ids = _find_matching_data_ids("visit", datasets)
+
+        # Look up all the exposure IDs corresponding to the datasets for which
+        # we only have group IDs.
+        with butler.query() as query:
+            exposures_from_groups: Iterable[DataCoordinate] = (
+                query.join_data_coordinates(group_ids).data_ids(["instrument", "exposure"])
+                if group_ids
+                else []
+            )
+            exposure_ids.update(exposures_from_groups)
+
+        # Look up all the visit IDs corresponding to exposure IDs known from
+        # datasets or groups.
+        with butler.query() as query:
+            visits_from_exposures = (
+                list(
+                    query.join_dimensions("visit_definition")
+                    .join_data_coordinates(exposure_ids)
+                    .data_ids(["instrument", "exposure", "visit"])
+                )
+                if exposure_ids
+                else []
+            )
+
+            self._exposure_visit_mapping = {
+                id.subset("exposure"): id.subset("visit") for id in visits_from_exposures
+            }
+            self._group_visit_mapping = {
+                id.subset("group"): id.subset("visit") for id in visits_from_exposures
+            }
+            visit_ids.update(id.subset("visit") for id in visits_from_exposures)
+
+        # Look up the dimension records for all visits referenced by the input datasets.
+        with butler.query() as query:
+            self._visit_records = (
+                {
+                    record.dataId: record
+                    for record in query.join_data_coordinates(visit_ids).dimension_records("visit")
+                }
+                if visit_ids
+                else {}
+            )
+
+    def get_visit_record(self, ref: DatasetRef) -> DimensionRecord:
+        """Return the visit record corresponding to the given dataset."""
+        visit_id = _get_dimension_data_id("visit", ref)
+        if visit_id is None:
+            exposure_id = _get_dimension_data_id("exposure", ref)
+            if exposure_id is not None:
+                visit_id = self._exposure_visit_mapping.get(exposure_id)
+        if visit_id is None:
+            group_id = _get_dimension_data_id("group", ref)
+            if group_id is not None:
+                visit_id = self._group_visit_mapping.get(group_id)
+
+        if visit_id is not None:
+            visit_record = self._visit_records.get(visit_id)
+            if visit_record is not None:
+                return visit_record
+
+        raise ValueError(f"Failed to find visit record corresponding to dataset {ref}.")
+
+    def get_visit_id(self, ref: DatasetRef) -> int:
+        """Return the visit ID corresponding to the given dataset."""
+        visit_id = self.get_visit_record(ref).dataId["visit"]
+        assert isinstance(visit_id, int), "Visit IDs are expected to be integers"
+        return visit_id
+
+    def get_all_visit_records(self) -> Iterable[DimensionRecord]:
+        """Return all visit records referenced by the input datasets."""
+        return self._visit_records.values()
+
+
+def _find_matching_data_ids(dimension: str, datasets: list[DatasetRef]) -> set[DataCoordinate]:
+    data_ids: set[DataCoordinate] = set()
+    for ref in datasets:
+        if (id := _get_dimension_data_id(dimension, ref)) is not None:
+            data_ids.add(id)
+    return data_ids
+
+
+def _get_dimension_data_id(dimension: str, ref: DatasetRef) -> DataCoordinate | None:
+    if dimension in ref.datasetType.dimensions.required:
+        return ref.dataId.subset([dimension])
+    else:
+        return None

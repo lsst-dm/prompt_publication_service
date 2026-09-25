@@ -138,10 +138,22 @@ def _dimension_status_column(
     return mapped_column(_EnumColumn(DimensionRecordStatus), default=default, index=True)
 
 
-class DimensionRecordStatusMixin:
-    """Status columns that are used in all tables that track Butler dimension
-    records.
+class Visit(Base):
+    """Table tracking the status of Butler `visit` dimension metadata."""
+
+    __tablename__ = "visit"
+
+    id: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
+    """Dimension primary key from the Butler (visit or exposure)."""
+    instrument: Mapped[str] = mapped_column(primary_key=True)
+    """Instrument name from the Butler."""
+    day_obs: Mapped[int] = mapped_column(types.BigInteger)
+    """Observation date as stored in the Butler.  Note that this is the local
+    date at the beginning of the observing night, and not necessarily the same
+    calendar date as the exposure time below.
     """
+    time: Mapped[datetime | None] = mapped_column(types.DateTime(timezone=True), nullable=True)
+    """Date and time when the visit/exposure ended."""
 
     embargo_status = _dimension_status_column(DimensionRecordStatus.INITIAL)
     """Status of these dimension records in the ``embargo`` Butler
@@ -171,68 +183,6 @@ class DimensionRecordStatusMixin:
         return _butler_repository_to_status_column[repository]
 
 
-class DimensionRecordObservationMixin:
-    """Columns that are used in both the `Visit` and `Exposure` tables."""
-
-    id: Mapped[int] = mapped_column(types.BigInteger, primary_key=True)
-    """Dimension primary key from the Butler (visit or exposure)."""
-    instrument: Mapped[str] = mapped_column(primary_key=True)
-    """Instrument name from the Butler."""
-
-    day_obs: Mapped[int] = mapped_column(types.BigInteger)
-    """Observation date as stored in the Butler.  Note that this is the local
-    date at the beginning of the observing night, and not necessarily the same
-    calendar date as the exposure time below.
-    """
-    time: Mapped[datetime | None] = mapped_column(types.DateTime(timezone=True), nullable=True)
-    """Date and time when the visit/exposure ended."""
-
-
-class Visit(DimensionRecordObservationMixin, DimensionRecordStatusMixin, Base):
-    """Table tracking the status of Butler `visit` dimension metadata."""
-
-    __tablename__ = "visit"
-
-    butler_dimension = "visit"
-    """Name of the corresponding Butler dimension.  This is not a SQL column.
-    """
-
-
-class Exposure(DimensionRecordObservationMixin, DimensionRecordStatusMixin, Base):
-    """Table tracking the status of Butler `exposure` dimension metadata."""
-
-    __tablename__ = "exposure"
-
-    can_see_sky: Mapped[bool]
-    """`True` if this exposure contains on-sky data. `False` if it contains
-    only in-dome calibration or similar data that is not subject to embargo
-    restrictions.
-    """
-
-    butler_dimension = "exposure"
-    """Name of the corresponding Butler dimension.  This is not a SQL column.
-    """
-
-
-class Group(DimensionRecordStatusMixin, Base):
-    """Table tracking the status of Butler `group` dimension metadata."""
-
-    __tablename__ = "group"
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    """Group ID from the Butler."""
-    instrument: Mapped[str] = mapped_column(primary_key=True)
-    """Instrument name from the Butler."""
-
-    butler_dimension = "group"
-    """Name of the corresponding Butler dimension.  This is not a SQL column.
-    """
-
-
-DimensionRecordTable: TypeAlias = type[Visit] | type[Exposure] | type[Group]
-DimensionRecordRow: TypeAlias = Visit | Exposure | Group
-
-
 class Dataset(Base):
     """Table tracking the datasets that are available for unembargo and
     publication.
@@ -248,15 +198,11 @@ class Dataset(Base):
     """Name of Butler DatasetType."""
     instrument: Mapped[str] = mapped_column(nullable=True)
     """Instrument name from the Butler."""
-    visit: Mapped[int] = mapped_column(types.BigInteger, nullable=True)
+    visit: Mapped[int] = mapped_column(types.BigInteger)
     """Visit ID from the Butler."""
-    exposure: Mapped[int] = mapped_column(types.BigInteger, nullable=True)
-    """Exposure ID from the Butler."""
-    group: Mapped[str | None]
-    """Group ID from the Butler."""
     butler_data_id: Mapped[dict[str, str | int] | None] = mapped_column(JSON, nullable=True)
     """The portion of the Butler "required data ID" (metadata primary keys)
-    that is not already captured in instrument/visit/exposure/group, above.
+    that is not already captured in instrument/visit, above.
 
     This is currently unused by this service, but will make it easier to
     migrate in the future if it turns out that more dimensions require special
@@ -293,8 +239,6 @@ class Dataset(Base):
 
     __table_args__ = (
         ForeignKeyConstraint(["visit", "instrument"], ["visit.id", "visit.instrument"]),
-        ForeignKeyConstraint(["exposure", "instrument"], ["exposure.id", "exposure.instrument"]),
-        ForeignKeyConstraint(["group", "instrument"], ["group.id", "group.instrument"]),
         # For queries trying to determine which datasets need to be transferred
         # from one repository or another, we always have equality constraints
         # on dataset_type+origin (because rules are defined on a
@@ -345,7 +289,7 @@ class UnknownDataset(Base):
     """
 
 
-for table in (Dataset, Visit, Exposure, Group):
+for table in (Dataset, Visit):
     for status_column in _butler_repository_to_status_column.values():
         if getattr(table, status_column, None) is None:
             raise AssertionError(f"Table {table.__tablename__} is missing status column {status_column}")
