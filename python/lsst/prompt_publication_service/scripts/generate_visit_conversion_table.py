@@ -39,7 +39,9 @@ def generate_visit_conversion_table(butler_repo: str, database_uri: str) -> None
         ).mappings()
         for batch in batched(results, 10_000):
             with butler.query() as query:
-                data_coordinates = [DataCoordinate.standardize(dict(mapping)) for mapping in batch]
+                data_coordinates = [
+                    DataCoordinate.standardize(dict(mapping), universe=butler.dimensions) for mapping in batch
+                ]
                 dataIds = list(
                     query.join_data_coordinates(data_coordinates).data_ids(["instrument", "exposure"])
                 )
