@@ -45,3 +45,7 @@ def generate_visit_conversion_table(butler_repo: str, database_uri: str) -> None
                 )
                 for id in dataIds:
                     print(dict(id.mapping))
+
+
+if __name__ == "__main__":
+    generate_visit_conversion_table()
