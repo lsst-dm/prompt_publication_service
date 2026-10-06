@@ -35,7 +35,7 @@ def generate_visit_conversion_table(butler_repo: str, database_uri: str) -> None
     engine = create_engine(database_uri)
     with engine.connect() as conn:
         results = conn.execute(
-            text("SELECT DISTINCT instrument, group FROM dataset WHERE group IS NOT NULL")
+            text('SELECT DISTINCT instrument, "group" FROM dataset WHERE group IS NOT NULL')
         ).mappings()
         for batch in batched(results, 10_000):
             with butler.query() as query:
