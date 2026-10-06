@@ -15,6 +15,14 @@ dependencies = [
     "structlog>=25.5.0",
 ]
 
+[build-system]
+requires = ["uv_build<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "lsst.prompt_publication_service"
+module-root = "python/"
+
 # Pytest configuration required to prevent pytest from looking for
 # configurations in parent directories. Can be empty.
 [tool.pytest]
