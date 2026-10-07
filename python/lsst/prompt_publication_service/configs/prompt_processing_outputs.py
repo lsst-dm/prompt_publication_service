@@ -177,8 +177,7 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
         DatasetOrigin.DAYTIME_AP_CATCHUP: {
             # Tier 1
             "preliminary_visit_summary": _TIER1_NONPIXEL,
-            # This may be replaced by a new dataset type called `ap_source`.
-            "single_visit_star_reprocessed_footprints": _TIER1_NONPIXEL,
+            "prompt_source": _TIER1_NONPIXEL,
         },
     }
 )
