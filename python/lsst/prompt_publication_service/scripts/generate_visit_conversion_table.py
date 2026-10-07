@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import csv
 from itertools import batched
 
 import click
@@ -33,7 +34,9 @@ from lsst.daf.butler import Butler, DataCoordinate
 def generate_visit_conversion_table(butler_repo: str, database_uri: str) -> None:
     butler = Butler.from_config(butler_repo)
     engine = create_engine(database_uri)
-    with engine.connect() as conn:
+    with engine.connect() as conn, open("group_exposure_mapping.csv", "w") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["Instrument", "Group", "Exposure"])
         results = conn.execute(
             text('SELECT DISTINCT instrument, "group" FROM dataset WHERE "group" IS NOT NULL')
         ).mappings()
@@ -46,7 +49,7 @@ def generate_visit_conversion_table(butler_repo: str, database_uri: str) -> None
                     query.join_data_coordinates(data_coordinates).data_ids(["instrument", "exposure"])
                 )
                 for id in dataIds:
-                    print(dict(id.mapping))
+                    writer.writerow([id.mapping["instrument"], id.mapping["group"], id.mapping["exposure"]])
 
 
 if __name__ == "__main__":
