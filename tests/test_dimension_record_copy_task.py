@@ -21,10 +21,9 @@
 
 import unittest
 
-from lsst.prompt_publication_service.schema import Exposure, Visit
+from lsst.prompt_publication_service.schema import Visit
 from lsst.prompt_publication_service.tasks.dimension_record_copy import DimensionRecordCopyTask
 from lsst.prompt_publication_service.test_utils import (
-    EXPOSURE1,
     VISIT1,
     VISIT2,
     load_base_dimension_data,
@@ -55,8 +54,8 @@ class TestDimensionRecordCopy(unittest.IsolatedAsyncioTestCase):
             )
             await session.commit()
 
-        prompt_prep_task = DimensionRecordCopyTask(Visit, "embargo", "prompt_prep")
-        repo_main_task = DimensionRecordCopyTask(Visit, "prompt_prep", "/repo/main")
+        prompt_prep_task = DimensionRecordCopyTask("embargo", "prompt_prep")
+        repo_main_task = DimensionRecordCopyTask("prompt_prep", "/repo/main")
 
         # prompt_prep is still empty, so there is nothing to copy from it.
         self.assertEqual((await repo_main_task.run(self.context)).data, 0)
@@ -68,6 +67,7 @@ class TestDimensionRecordCopy(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.prompt_prep_butler.query_dimension_records("visit_detector_region")), 4)
         self.assertEqual(len(self.prompt_prep_butler.query_dimension_records("visit_definition")), 2)
         self.assertEqual(len(self.prompt_prep_butler.query_dimension_records("exposure")), 2)
+        self.assertEqual(len(self.prompt_prep_butler.query_dimension_records("group")), 2)
 
         # Running a second time finds nothing left to copy.
         self.assertEqual((await prompt_prep_task.run(self.context)).data, 0)
@@ -78,19 +78,4 @@ class TestDimensionRecordCopy(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.repo_main_butler.query_dimension_records("visit_detector_region")), 4)
         self.assertEqual(len(self.repo_main_butler.query_dimension_records("visit_definition")), 2)
         self.assertEqual(len(self.repo_main_butler.query_dimension_records("exposure")), 2)
-
-    async def test_dimension_record_copy_exposure(self) -> None:
-        async with self.state_db.session() as session:
-            session.add_all(
-                [
-                    Exposure(
-                        id=EXPOSURE1.id, instrument="LSSTCam", day_obs=20251202, can_see_sky=True, time=None
-                    ),
-                ]
-            )
-            await session.commit()
-
-        task = DimensionRecordCopyTask(Exposure, "embargo", "prompt_prep")
-        self.assertEqual((await task.run(self.context)).data, 1)
-        self.assertEqual(len(self.prompt_prep_butler.query_dimension_records("exposure")), 1)
-        self.assertEqual(len(self.repo_main_butler.query_dimension_records("visit", explain=False)), 0)
+        self.assertEqual(len(self.repo_main_butler.query_dimension_records("group")), 2)

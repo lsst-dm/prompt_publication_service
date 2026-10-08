@@ -323,7 +323,7 @@ wheels = [
 
 [[package]]
 name = "lsst-pipe-base"
-version = "30.2026.902"
+version = "30.2026.1300"
 source = { git = "https://github.com/lsst/pipe_base#ea9f1241783cb28775c2e81705af4bf2c0a1c190" }
 dependencies = [
     { name = "astropy" },
@@ -343,7 +343,7 @@ dependencies = [
 [[package]]
 name = "lsst-prompt-publication-service"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "aiokafka" },
     { name = "alembic" },

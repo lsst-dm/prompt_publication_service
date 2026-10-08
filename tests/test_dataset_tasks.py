@@ -32,9 +32,6 @@ from lsst.prompt_publication_service.schema import (
     Dataset,
     DatasetLocationStatus,
     DatasetOrigin,
-    Exposure,
-    Group,
-    Visit,
 )
 from lsst.prompt_publication_service.tasks.dimension_record_copy import DimensionRecordCopyTask
 from lsst.prompt_publication_service.tasks.publish_to_google import (
@@ -124,17 +121,17 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             )
             # Still in the embargo period, so non-pixel data can be unembargoed
             # but the pixel data cannot.
-            # Initially, we still transfer nothing because the 'group'
+            # Initially, we still transfer nothing because the
             # dimension records haven't been copied...
             self.assertEqual(
                 (await unembargo_transfer_task.run(self.context)).data,
                 [],
             )
-            # And then after the 'group' copy, the non-pixel datasets can go.
-            await DimensionRecordCopyTask(Group, "embargo", "prompt_prep").run(self.context)
-            self.assertEqual(
+            # And then after the dimension record copy, the non-pixel datasets can go.
+            await DimensionRecordCopyTask("embargo", "prompt_prep").run(self.context)
+            self.assertCountEqual(
                 (await unembargo_transfer_task.run(self.context)).data,
-                [nonvisit.id],
+                [nonvisit.id, exposure.id],
             )
             # Non-pixel dataset is copied from embargo repo to prompt_prep
             # repo.
@@ -142,15 +139,6 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.embargo_butler.get(nonvisit), 3)
             self.assertNotEqual(
                 self.prompt_prep_butler.getURI(nonvisit), self.embargo_butler.getURI(nonvisit)
-            )
-
-            # The non-pixel dataset requiring exposure records wasn't
-            # transferred, because the exposure records weren't transferred
-            # yet.  Set up the exposure records, and then it should transfer.
-            await DimensionRecordCopyTask(Exposure, "embargo", "prompt_prep").run(self.context)
-            self.assertEqual(
-                (await unembargo_transfer_task.run(self.context)).data,
-                [exposure.id],
             )
             self.assertEqual(self.prompt_prep_butler.get(exposure), 1)
             self.assertEqual(self.embargo_butler.get(exposure), 1)
@@ -173,13 +161,17 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(pvi1_state.unembargo_time)
             self.assertEqual(pvi1_state.prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
 
+        # Transfer all dimension records to /repo/main and Google so that
+        # later transfers aren't blocked waiting for the records.
+        await DimensionRecordCopyTask("prompt_prep", "prompt_google_int").run(self.context)
+        await DimensionRecordCopyTask("prompt_prep", "/repo/main").run(self.context)
+
         with DateTimeSource.mock_current_time(between_visit_time, 2):
-            # Now that there is a dataset in prompt_prep, it should move to
-            # /repo/main.
-            await DimensionRecordCopyTask(Group, "prompt_prep", "/repo/main").run(self.context)
-            self.assertEqual(
+            # Now that there are datasets in prompt_prep, they should move to
+            # /repo/main and Google.
+            self.assertCountEqual(
                 (await repo_main_transfer_task.run(self.context)).data,
-                [nonvisit.id],
+                [nonvisit.id, exposure.id],
             )
             state = await self._get_dataset_state(nonvisit.id)
             self.assertEqual(state.repo_main_status, DatasetLocationStatus.PRESENT)
@@ -193,10 +185,13 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # copying to /repo/main.
             self.assertEqual(state.unembargo_time, time1)
             self.assertEqual(state.prompt_prep_status, DatasetLocationStatus.PRESENT)
+            self.assertCountEqual(
+                (await publish_to_google_task.run(self.context)).data, [nonvisit.id, exposure.id]
+            )
 
         with DateTimeSource.mock_current_time(between_visit_time, 3) as time:
             # Still in the embargo period.  We already unembargoed the
-            # non-pixel data, and there shouldn't be anything else yet.
+            # non-pixel data.
             self.assertEqual(
                 (await unembargo_transfer_task.run(self.context)).data,
                 [],
@@ -210,17 +205,6 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         with DateTimeSource.mock_current_time(between_visit_time, 80) as time:
             # Embargo period is finished for the first visit, but not the
             # second.
-
-            # We haven't yet transferred the required visit records to the
-            # repository, so we still can't unembargo anything else.
-            self.assertEqual(
-                (await unembargo_transfer_task.run(self.context)).data,
-                [],
-            )
-
-            # Transfer the visit records to allow dataset transfers to proceed.
-            await DimensionRecordCopyTask(Visit, "embargo", "prompt_prep").run(self.context)
-            await DimensionRecordCopyTask(Visit, "prompt_prep", "prompt_google_int").run(self.context)
 
             # Datasets are not transferred to Google until after they are
             # copied to prompt_prep.
@@ -283,9 +267,9 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         await register_embargo_datasets(
             self.state_db, DatasetOrigin.PROMPT_PROCESSING, self.embargo_butler, [ref1, ref2, ref3]
         )
-        # Transfer required 'group' records.
-        await DimensionRecordCopyTask(Group, "embargo", "prompt_prep").run(self.context)
-        await DimensionRecordCopyTask(Group, "prompt_prep", "/repo/main").run(self.context)
+        # Transfer required dimension records.
+        await DimensionRecordCopyTask("embargo", "prompt_prep").run(self.context)
+        await DimensionRecordCopyTask("prompt_prep", "/repo/main").run(self.context)
 
         # Remove first dataset from both registry and datastore.
         self.embargo_butler.pruneDatasets([ref1], disassociate=True, unstore=True, purge=True)
@@ -340,10 +324,10 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         await register_embargo_datasets(
             self.state_db, DatasetOrigin.PROMPT_PROCESSING, self.embargo_butler, [ref]
         )
-        # Transfer required 'group' records.
-        await DimensionRecordCopyTask(Group, "embargo", "prompt_prep").run(self.context)
-        await DimensionRecordCopyTask(Group, "prompt_prep", "/repo/main").run(self.context)
-        await DimensionRecordCopyTask(Group, "prompt_prep", "prompt_google_int").run(self.context)
+        # Transfer required dimension records.
+        await DimensionRecordCopyTask("embargo", "prompt_prep").run(self.context)
+        await DimensionRecordCopyTask("prompt_prep", "/repo/main").run(self.context)
+        await DimensionRecordCopyTask("prompt_prep", "prompt_google_int").run(self.context)
         # Copy the dataset to the target Butler.  This simulates the case where
         # unembargo failed partway through, after copying a dataset but before
         # updating the state DB.  Or someone could have transferred a dataset
