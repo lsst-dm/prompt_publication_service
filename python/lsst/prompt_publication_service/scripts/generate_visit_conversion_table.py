@@ -36,7 +36,7 @@ def generate_visit_conversion_table(butler_repo: str, database_uri: str) -> None
     engine = create_engine(database_uri)
     with engine.connect() as conn, open("group_exposure_mapping.csv", "w") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["Instrument", "Group", "Exposure"])
+        writer.writerow(["Group", "Exposure"])
         results = conn.execute(
             text('SELECT DISTINCT instrument, "group" FROM dataset WHERE "group" IS NOT NULL')
         ).mappings()
@@ -49,7 +49,7 @@ def generate_visit_conversion_table(butler_repo: str, database_uri: str) -> None
                     query.join_data_coordinates(data_coordinates).data_ids(["instrument", "exposure"])
                 )
                 for id in dataIds:
-                    writer.writerow([id.mapping["instrument"], id.mapping["group"], id.mapping["exposure"]])
+                    writer.writerow([id.mapping["group"], id.mapping["exposure"]])
 
 
 if __name__ == "__main__":
