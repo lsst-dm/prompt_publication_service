@@ -75,4 +75,5 @@ lsst-pipe-base = { git = "https://github.com/lsst/pipe_base" }
 dev = [
     "mypy>=1.19.1",
     "pytest>=9.0.2",
+    "ruff>=0.17.0",
 ]
