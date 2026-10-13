@@ -1,16 +1,16 @@
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
-from typing import Iterator
+from datetime import UTC, datetime, timedelta
 
 
 class DateTimeSource:
-    _mocked_current_time = None
+    _mocked_current_time: datetime | None = None
 
     @staticmethod
     def now() -> datetime:
         if DateTimeSource._mocked_current_time is not None:
             return DateTimeSource._mocked_current_time
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     @contextmanager
     @staticmethod
