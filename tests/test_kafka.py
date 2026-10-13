@@ -22,6 +22,8 @@
 import json
 import unittest
 import unittest.mock
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -110,11 +112,9 @@ class TestKafkaIngest(unittest.IsolatedAsyncioTestCase):
             "origin": "prompt_processing",
             "batch_file": batch_filename,
         }
-        kafka_message = json.dumps(kafka_message_dict)
 
         ingester = Ingester(self.reader, db, butler, f"file://{batch_directory}")
-        with unittest.mock.patch.object(self.reader, "_consumer", spec=True) as mock:
-            mock.getone.return_value = MockConsumerRecord(kafka_message)
+        with self._mock_kafka_message(kafka_message_dict):
             await ingester.process_one()
 
         async with db.session() as session:
@@ -125,11 +125,30 @@ class TestKafkaIngest(unittest.IsolatedAsyncioTestCase):
             # Other fields are checked more thoroughly in
             # `test_state_database.py`.
 
-        with self.assertRaisesRegex(ValueError, "Unknown dataset origin"):
-            with unittest.mock.patch.object(self.reader, "_consumer", spec=True) as mock:
-                kafka_message = json.dumps(kafka_message_dict | {"origin": "invalid"})
-                mock.getone.return_value = MockConsumerRecord(kafka_message)
-                await ingester.process_one()
+        day_end_message = {
+            "type": "day-end",
+            "instrument": "LSSTCam",
+            "day_obs": 20261007,
+            "surveys": ["SURVEY"],
+            "version": "g00e868bf88+a07710f3b7",
+        }
+        with self._mock_kafka_message(day_end_message):
+            # Message should be ignored.
+            await ingester.process_one()
+
+        with (
+            self.assertRaisesRegex(ValueError, "Unknown dataset origin"),
+            self._mock_kafka_message(kafka_message_dict | {"origin": "invalid"}),
+        ):
+            await ingester.process_one()
+
+    @contextmanager
+    def _mock_kafka_message(self, message_dict: dict) -> Generator[None]:
+        """Mock the KafkaReader to return a specific message."""
+        with unittest.mock.patch.object(self.reader, "_consumer", spec=True) as mock:
+            kafka_message = json.dumps(message_dict)
+            mock.getone.return_value = MockConsumerRecord(kafka_message)
+            yield
 
 
 class MockConsumerRecord:
