@@ -171,7 +171,7 @@ MAX_DATASETS_PER_QUERY = 1_000_000
 
 def create_transfer_lookup_query(
     source_repository: ButlerRepository, target_repository: ButlerRepository
-) -> Select[tuple[UUID]]:
+) -> Select[UUID]:
     """Returns a SQL query against the Dataset table that finds the dataset
     UUID of candidates that can be copied from the given source repository to
     the target.  The Visit, Exposure, and Group tables are joined to the

@@ -44,7 +44,7 @@ OUTPUT_TAGGED_COLLECTION = "Prompt/Available/Outputs"
 
 
 async def _find_datasets_to_publish(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
-    queries: list[Select[tuple[UUID]]] = []
+    queries: list[Select[UUID]] = []
     for group in config.filter(lambda c: c.publish_to_public).group_by_origin():
         query = create_transfer_lookup_query("prompt_prep", "prompt_google_int").where(
             Dataset.origin == group.origin,

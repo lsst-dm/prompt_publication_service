@@ -40,7 +40,7 @@ from .impl.transfer_task import (
 
 
 async def _find_datasets_to_unembargo(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
-    queries: list[Select[tuple[UUID]]] = []
+    queries: list[Select[UUID]] = []
     for group in config.group_by(lambda c: c.embargo_period_hours):
         query = create_transfer_lookup_query("embargo", "prompt_prep").where(
             Dataset.origin == group.origin,
