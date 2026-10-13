@@ -11,7 +11,7 @@ dependencies = [
     "lsst-pipe-base",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
-    "sqlalchemy[aiosqlite,asyncio,postgresql-asyncpg]>=2.0.48",
+    "sqlalchemy[aiosqlite,asyncio,postgresql]>=2.1",
     "structlog>=25.5.0",
 ]
 
