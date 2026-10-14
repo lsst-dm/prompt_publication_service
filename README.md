@@ -7,3 +7,6 @@ cycle of these datasets for
 
 [DMTN-330](https://dmtn-330.lsst.io/) gives an overview of the rationale and
 design for this service.
+
+See [service documentation at USDF](https://df-ops.lsst.io/usdf-applications/ap/prompt-publication/index.html)
+for information about how the service is deployed and other procedures.
