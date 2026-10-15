@@ -172,8 +172,8 @@ def create_transfer_lookup_query(
 ) -> Select[UUID]:
     """Returns a SQL query against the Dataset table that finds the dataset
     UUID of candidates that can be copied from the given source repository to
-    the target.  The Visit, Exposure, and Group tables are joined to the
-    resulting query against the Dataset table.
+    the target.  The Visit table is joined to the resulting query against the
+    Dataset table.
     """
     return (
         select(Dataset.id)
