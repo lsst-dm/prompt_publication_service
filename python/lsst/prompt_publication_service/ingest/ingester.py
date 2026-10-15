@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 import pydantic
@@ -52,6 +52,19 @@ class _BatchIngestedEvent(pydantic.BaseModel):
     """
 
 
+class _DayEndEvent(pydantic.BaseModel):
+    """Kafka message sent from Butler Writer Service, signaling that a day
+    has ended and all datasets from Prompt Processing for that day
+    have been ingested into Prompt Processing.
+    """
+
+    type: Literal["day-end"]
+
+
+_Message = Annotated[_BatchIngestedEvent | _DayEndEvent, pydantic.Field(discriminator="type")]
+_MessageTypeAdapter = pydantic.TypeAdapter(_Message)
+
+
 class Ingester:
     """Reads list of datasets from a Kafka topic and registers them in the
     state database.
@@ -67,14 +80,23 @@ class Ingester:
 
     async def process_one(self) -> None:
         async with self._kafka.read_next_message_and_commit_on_success() as raw_message:
-            message = _BatchIngestedEvent.model_validate_json(raw_message)
-            batch_file = self._batch_file_directory.join(message.batch_file, forceDirectory=False)
-            await register_dataset_batch_file(
-                db=self._state_db,
-                origin=_get_origin(message),
-                source_butler=self._butler,
-                batch_file=batch_file,
-            )
+            message = _MessageTypeAdapter.validate_json(raw_message)
+            if message.type == "batch-ingested":
+                batch_file = self._batch_file_directory.join(message.batch_file, forceDirectory=False)
+                await register_dataset_batch_file(
+                    db=self._state_db,
+                    origin=_get_origin(message),
+                    source_butler=self._butler,
+                    batch_file=batch_file,
+                )
+            elif message.type == "day-end":
+                # Currently unused by Prompt Publication Service, but appears
+                # in the stream of messages sent from Butler Writer.
+                pass
+            else:
+                # This branch is theoretically unreachable, since the Pydantic
+                # model should have rejected it.
+                raise ValueError(f"Unhandled Kafka message '{raw_message}'")
 
 
 def _get_origin(message: _BatchIngestedEvent) -> DatasetOrigin:

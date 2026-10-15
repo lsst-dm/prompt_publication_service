@@ -9,6 +9,7 @@ dependencies = [
     "click>=8.3.1",
     "lsst-daf-butler[postgres]",
     "lsst-pipe-base",
+    "psycopg[binary]>=3.3.6",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
     "sqlalchemy[aiosqlite,asyncio,postgresql]>=2.1",
