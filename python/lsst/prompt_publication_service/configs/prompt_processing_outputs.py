@@ -80,6 +80,7 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "dia_object_apdb": _TIER2_NONPIXEL,
             "marginal_new_dia_source": _TIER2_NONPIXEL,
             "regionTimeInfo": _TIER2_NONPIXEL,
+            "dia_source_visit": _TIER2_NONPIXEL,
             # Tier 3
             "ss_source_direct_detector": _TIER3_NONPIXEL,
             "ss_object_direct_unassociated": _TIER3_NONPIXEL,
