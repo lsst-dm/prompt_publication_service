@@ -81,11 +81,6 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "marginal_new_dia_source": _TIER2_NONPIXEL,
             "regionTimeInfo": _TIER2_NONPIXEL,
             "dia_source_visit": _TIER2_NONPIXEL,
-            # Tier 3
-            "ss_source_direct_detector": _TIER3_NONPIXEL,
-            "ss_object_direct_unassociated": _TIER3_NONPIXEL,
-            "ss_object_unassociated_detector": _TIER3_NONPIXEL,
-            "ss_source_detector": _TIER3_NONPIXEL,
             # Non-public
             "preliminary_visit_image": _USDF_INTERNAL_PIXEL,
             "template_detector": _USDF_INTERNAL_PIXEL,
@@ -98,6 +93,10 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "preloaded_dia_source": _USDF_INTERNAL_NONPIXEL,
             "preloaded_ss_object": _USDF_INTERNAL_NONPIXEL,
             "single_visit_star_schema": _USDF_INTERNAL_NONPIXEL,
+            "ss_source_direct_detector": _USDF_INTERNAL_NONPIXEL,
+            "ss_object_direct_unassociated": _USDF_INTERNAL_NONPIXEL,
+            "ss_object_unassociated_detector": _USDF_INTERNAL_NONPIXEL,
+            "ss_source_detector": _USDF_INTERNAL_NONPIXEL,
             # Miscellaneous provenance datasets (config/log/metadata/packages).
             "analyzeAssociateDiaSourceTiming_config": _PROVENANCE,
             "analyzeAssociateDiaSourceTiming_log": _PROVENANCE,
