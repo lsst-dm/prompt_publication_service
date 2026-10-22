@@ -173,7 +173,7 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
         DatasetOrigin.DAYTIME_AP_CATCHUP: {
             # Tier 1
             "visit_image": _TIER1_PIXEL,
-            "preliminary_visit_summary": _TIER1_NONPIXEL,
+            "visit_summary": _TIER1_NONPIXEL,
             "prompt_source": _TIER1_NONPIXEL,
         },
     }
