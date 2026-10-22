@@ -97,6 +97,7 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "ss_object_direct_unassociated": _USDF_INTERNAL_NONPIXEL,
             "ss_object_unassociated_detector": _USDF_INTERNAL_NONPIXEL,
             "ss_source_detector": _USDF_INTERNAL_NONPIXEL,
+            "visit_summary_aggregate": _USDF_INTERNAL_NONPIXEL,
             # Miscellaneous provenance datasets (config/log/metadata/packages).
             "analyzeAssociateDiaSourceTiming_config": _PROVENANCE,
             "analyzeAssociateDiaSourceTiming_log": _PROVENANCE,
