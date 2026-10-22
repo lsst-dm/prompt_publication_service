@@ -91,7 +91,7 @@ def load_visit_dimension_data(butler: Butler) -> None:
     butler.import_(filename=get_path_to_test_data_file("visit_dimensions.yaml"))
 
 
-VISIT_DATASET_TYPE = "preliminary_visit_image"
+VISIT_DATASET_TYPE = "difference_image"
 UNPUBLISHED_VISIT_DATASET_TYPE = "template_detector"
 NONVISIT_DATASET_TYPE = "regionTimeInfo"
 EXPOSURE_DATASET_TYPE = "isr_log"
