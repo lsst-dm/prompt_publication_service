@@ -22,14 +22,15 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from itertools import batched
-from typing import Awaitable, Callable
 from uuid import UUID
 
 from sqlalchemy import Select, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from lsst.daf.butler import DatasetId
+from lsst.daf.butler import Butler, DatasetId, DatasetRef
 
 from ...config import DatasetTypeConfiguration
 from ...database import Database
@@ -48,14 +49,6 @@ _LOG = get_global_logger()
 
 
 @dataclass(frozen=True)
-class DatasetTransferResult:
-    missing_datasets: list[UUID]
-    """Datasets that were not found in the source repository."""
-    transferred_datasets: list[UUID]
-    """Datasets that were successfully transferred to the target repository."""
-
-
-@dataclass(frozen=True)
 class TransferConfig:
     source_repository: ButlerRepository
     """Label of the Butler repository that datasets will be transferred
@@ -68,7 +61,7 @@ class TransferConfig:
     will be transferred.
     """
     dataset_transfer_function: Callable[
-        [TaskContext, TransferConfig, tuple[DatasetId, ...]], Awaitable[DatasetTransferResult]
+        [TaskContext, TransferConfig, tuple[DatasetId, ...]], Awaitable[DatasetTransferTracker]
     ]
     """Function called to execute the actual transfer of datasets."""
     batch_size: int
@@ -112,56 +105,103 @@ class TransferTask(Task):
             successful_datasets.extend(task.result())
         return TaskRunResult("success", data=successful_datasets)
 
-    async def _process_batch(self, ctx: TaskContext, batch: tuple[DatasetId, ...]) -> list[DatasetId]:
+    async def _process_batch(self, ctx: TaskContext, batch: tuple[DatasetId, ...]) -> set[DatasetId]:
         async with self._concurrency_semaphore:
             self._log.info("starting butler transfer", count=len(batch))
+
             result = await self._config.dataset_transfer_function(ctx, self._config, batch)
+            completed_ids = result.get_complete_datasets()
             self._log.info(
                 "completed butler transfer",
-                transferred=len(result.transferred_datasets),
-                missing=len(result.missing_datasets),
+                transferred=len(completed_ids),
+                missing=len(result.get_missing_datasets()),
             )
-            await self._record_transfer_result(ctx.state_database, result)
-            self._log.info("completed state DB update")
-            return result.transferred_datasets
 
-    async def _record_transfer_result(
+            async with ctx.state_database.session() as session:
+                await result.persist_transfer_result(session, self._config.target_time_column)
+                await session.commit()
+            self._log.info("completed state DB update")
+
+            return completed_ids
+
+
+class DatasetTransferTracker:
+    def __init__(
         self,
-        db: Database,
-        transfer_result: DatasetTransferResult,
+        *,
+        source_repository: ButlerRepository,
+        target_repository: ButlerRepository,
+    ) -> None:
+        self._source_repository = source_repository
+        self._target_repository = target_repository
+        self._missing_ids: set[DatasetId] = set()
+        self._found_ids: set[DatasetId] = set()
+        self._completed_ids: set[DatasetId] = set()
+
+    def find_datasets(self, source_butler: Butler, dataset_ids: Iterable[DatasetId]) -> list[DatasetRef]:
+        dataset_ids = frozenset(dataset_ids)
+        found_refs = source_butler.get_many_datasets(dataset_ids)
+        found_ids = frozenset(ref.id for ref in found_refs)
+        # Dataset IDs that are not known to the Butler at all
+        # (missing from both "registry" and "datastore").
+        missing_ids = frozenset(dataset_ids - found_ids)
+        self._missing_ids.update(missing_ids)
+        self._found_ids.update(found_ids)
+        return found_refs
+
+    def get_missing_datasets(self) -> set[DatasetId]:
+        return set(self._missing_ids)
+
+    def get_complete_datasets(self) -> set[DatasetId]:
+        return set(self._completed_ids)
+
+    def get_incomplete_datasets(self) -> set[DatasetId]:
+        return self._found_ids - self._completed_ids
+
+    def mark_datasets_completed(self, dataset_ids: Iterable[DatasetId]) -> None:
+        self._completed_ids.update(dataset_ids)
+
+    def mark_refs_completed(self, refs: Iterable[DatasetRef]) -> None:
+        self._completed_ids.update(ref.id for ref in refs)
+
+    def mark_incomplete_as_missing(self) -> None:
+        self._missing_ids.update(self.get_incomplete_datasets())
+
+    async def persist_transfer_result(
+        self,
+        session: AsyncSession,
+        target_time_column: str | None = None,
     ) -> None:
         transfer_time = DateTimeSource.now()
-        source_status_column = Dataset.get_status_column_name(self._config.source_repository)
-        target_status_column = Dataset.get_status_column_name(self._config.target_repository)
+        source_status_column = Dataset.get_status_column_name(self._source_repository)
+        target_status_column = Dataset.get_status_column_name(self._target_repository)
 
-        async with db.session() as session:
-            await session.execute(
-                update(Dataset),
-                [
-                    {
-                        "id": id,
-                        source_status_column: DatasetLocationStatus.MISSING,
-                    }
-                    for id in transfer_result.missing_datasets
-                ],
-            )
+        await session.execute(
+            update(Dataset),
+            [
+                {
+                    "id": id,
+                    source_status_column: DatasetLocationStatus.MISSING,
+                }
+                for id in self._missing_ids
+            ],
+        )
 
-            if self._config.target_time_column is None:
-                time_update = {}
-            else:
-                time_update = {self._config.target_time_column: transfer_time}
-            await session.execute(
-                update(Dataset),
-                [
-                    {
-                        "id": id,
-                        target_status_column: DatasetLocationStatus.PRESENT,
-                        **time_update,
-                    }
-                    for id in transfer_result.transferred_datasets
-                ],
-            )
-            await session.commit()
+        if target_time_column is None:
+            time_update = {}
+        else:
+            time_update = {target_time_column: transfer_time}
+        await session.execute(
+            update(Dataset),
+            [
+                {
+                    "id": id,
+                    target_status_column: DatasetLocationStatus.PRESENT,
+                    **time_update,
+                }
+                for id in self._completed_ids
+            ],
+        )
 
 
 MAX_DATASETS_PER_QUERY = 1_000_000

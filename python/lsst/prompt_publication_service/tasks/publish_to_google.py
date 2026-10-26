@@ -31,10 +31,9 @@ from ..config import DatasetTypeConfiguration
 from ..database import Database
 from ..schema import Dataset
 from .base import TaskContext
-from .impl.transfer_exec import lookup_datasets
 from .impl.transfer_task import (
     MAX_DATASETS_PER_QUERY,
-    DatasetTransferResult,
+    DatasetTransferTracker,
     TransferConfig,
     TransferTask,
     create_transfer_lookup_query,
@@ -60,18 +59,20 @@ async def _find_datasets_to_publish(config: DatasetTypeConfiguration, db: Databa
 
 async def _publish_datasets(
     ctx: TaskContext, config: TransferConfig, datasets: tuple[DatasetId, ...]
-) -> DatasetTransferResult:
-    def publish() -> DatasetTransferResult:
+) -> DatasetTransferTracker:
+    def publish() -> DatasetTransferTracker:
         with (
             ctx.butler_factory.create_butler(config.source_repository) as source_butler,
             ctx.butler_factory.create_butler(config.target_repository) as target_butler,
         ):
-            lookup = lookup_datasets(source_butler, datasets)
-            transfer_datasets_in_place(source_butler, target_butler, lookup.found_refs)
-            target_butler.registry.associate(OUTPUT_TAGGED_COLLECTION, lookup.found_refs)
-            return DatasetTransferResult(
-                missing_datasets=list(lookup.missing_ids), transferred_datasets=list(lookup.found_ids)
+            tracker = DatasetTransferTracker(
+                source_repository=config.source_repository, target_repository=config.target_repository
             )
+            found_refs = tracker.find_datasets(source_butler, datasets)
+            transfer_datasets_in_place(source_butler, target_butler, found_refs)
+            target_butler.registry.associate(OUTPUT_TAGGED_COLLECTION, found_refs)
+            tracker.mark_refs_completed(found_refs)
+            return tracker
 
     return await asyncio.to_thread(publish)
 
