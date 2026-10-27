@@ -44,6 +44,7 @@ from ...schema import (
     Visit,
 )
 from ..base import Task, TaskContext, TaskRunResult
+from .process_pool import WorkerTaskContext
 
 _LOG = get_global_logger()
 
@@ -60,10 +61,10 @@ class TransferConfig:
     """Function that will be called to find the UUIDs of the datasets that
     will be transferred.
     """
-    dataset_transfer_function: Callable[
-        [TaskContext, TransferConfig, tuple[DatasetId, ...]], Awaitable[DatasetTransferTracker]
-    ]
-    """Function called to execute the actual transfer of datasets."""
+    transfer_mode: str
+    """Butler transfer mode used for transferring datasets.  See
+    `lsst.daf.Butler.transfer_from`.
+    """
     batch_size: int
     """Maximum number of datasets to transfer in a single batch."""
     max_concurrency: int
@@ -109,7 +110,14 @@ class TransferTask(Task):
         async with self._concurrency_semaphore:
             self._log.info("starting butler transfer", count=len(batch))
 
-            result = await self._config.dataset_transfer_function(ctx, self._config, batch)
+            result = await ctx.worker_pool.run(
+                _transfer_datasets,
+                source_repository=self._config.source_repository,
+                target_repository=self._config.target_repository,
+                transfer_mode=self._config.transfer_mode,
+                dataset_ids=batch,
+            )
+
             completed_ids = result.get_complete_datasets()
             self._log.info(
                 "completed butler transfer",
@@ -123,6 +131,53 @@ class TransferTask(Task):
             self._log.info("completed state DB update")
 
             return completed_ids
+
+
+def _transfer_datasets(
+    context: WorkerTaskContext,
+    source_repository: ButlerRepository,
+    target_repository: ButlerRepository,
+    transfer_mode: str,
+    dataset_ids: Iterable[UUID],
+) -> DatasetTransferTracker:
+    """Transfer the given datasets from one Butler repository to another.  This
+    function will be run in another process, via ProcessPoolExecutor.
+    """
+    log = context.log.bind(
+        task="dataset transfer",
+        source_repository=source_repository,
+        target_repository=target_repository,
+    )
+    with (
+        context.butler_factory.create_butler(source_repository) as source_butler,
+        context.butler_factory.create_butler(target_repository) as target_butler,
+    ):
+        transfer_tracker = DatasetTransferTracker(
+            source_repository=source_repository, target_repository=target_repository
+        )
+        found_refs = transfer_tracker.find_datasets(source_butler, dataset_ids)
+        missing_ids = transfer_tracker.get_missing_datasets()
+        if missing_ids:
+            log.warning("Datasets were not found in Butler registry", missing_ids=missing_ids)
+
+        completed_refs = target_butler.transfer_from(
+            source_butler, found_refs, transfer_mode, register_dataset_types=True
+        )
+        transfer_tracker.mark_refs_completed(completed_refs)
+
+        # If datasets passed into `transfer_from` were not returned from its
+        # result set, that means the datasets were known to the Butler
+        # "registry", but there are no corresponding file records in the Butler
+        # "datastore".
+        missing_datastore_entries = transfer_tracker.get_incomplete_datasets()
+        if missing_datastore_entries:
+            transfer_tracker.mark_incomplete_as_missing()
+            log.warning(
+                "Datasets were not found in Butler datastore",
+                missing_datastore_entries=missing_datastore_entries,
+            )
+
+        return transfer_tracker
 
 
 class DatasetTransferTracker:
