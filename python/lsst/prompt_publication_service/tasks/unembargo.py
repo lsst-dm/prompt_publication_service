@@ -30,7 +30,6 @@ from ..config import DatasetTypeConfiguration
 from ..database import Database
 from ..date_time_source import DateTimeSource
 from ..schema import Dataset, Visit
-from .impl.transfer_exec import TransferInWorkerPool
 from .impl.transfer_task import (
     MAX_DATASETS_PER_QUERY,
     TransferConfig,
@@ -68,7 +67,7 @@ unembargo_transfer_task = TransferTask(
         source_repository="embargo",
         target_repository="prompt_prep",
         dataset_lookup_function=_find_datasets_to_unembargo,
-        dataset_transfer_function=TransferInWorkerPool("copy").transfer,
+        transfer_mode="copy",
         # File copy can be slow and unreliable, and Butler currently holds DB
         # transactions open during the file transfer process.  So it's best to
         # copy only a handful of files at a time.
