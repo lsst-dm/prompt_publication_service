@@ -31,9 +31,9 @@ from lsst.daf.butler._rubin.transfer_datasets_in_place import transfer_datasets_
 from ..logging import get_global_logger
 from ..schema import ButlerRepository, Dataset
 from .base import Task, TaskContext, TaskRunResult
+from .impl.dataset_transfer_tracker import DatasetTransferTracker
 from .impl.transfer_task import (
     MAX_DATASETS_PER_QUERY,
-    DatasetTransferTracker,
     create_transfer_lookup_query,
 )
 
