@@ -20,6 +20,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+from itertools import batched
 from uuid import UUID
 
 from sqlalchemy import Select, union_all
@@ -27,64 +28,90 @@ from sqlalchemy import Select, union_all
 from lsst.daf.butler import DatasetId
 from lsst.daf.butler._rubin.transfer_datasets_in_place import transfer_datasets_in_place
 
-from ..config import DatasetTypeConfiguration
-from ..database import Database
-from ..schema import Dataset
-from .base import TaskContext
+from ..logging import get_global_logger
+from ..schema import ButlerRepository, Dataset
+from .base import Task, TaskContext, TaskRunResult
 from .impl.transfer_task import (
     MAX_DATASETS_PER_QUERY,
     DatasetTransferTracker,
-    TransferConfig,
-    TransferTask,
     create_transfer_lookup_query,
 )
+
+_LOG = get_global_logger()
 
 OUTPUT_TAGGED_COLLECTION = "Prompt/Available/Outputs"
 
 
-async def _find_datasets_to_publish(config: DatasetTypeConfiguration, db: Database) -> list[UUID]:
-    queries: list[Select[UUID]] = []
-    for group in config.filter(lambda c: c.publish_to_public).group_by_origin():
-        query = create_transfer_lookup_query("prompt_prep", "prompt_google_int").where(
-            Dataset.origin == group.origin,
-            Dataset.dataset_type.in_(group.dataset_types),
+class PublishTask(Task):
+    _BATCH_SIZE = 10000
+    _MAX_CONCURRENCY = 16
+
+    def __init__(self, *, source_repository: ButlerRepository, target_repository: ButlerRepository) -> None:
+        self._source_repository = source_repository
+        self._target_repository = target_repository
+        self._log = _LOG.bind(
+            task="publish visits",
+            source_repository=source_repository,
+            target_repository=target_repository,
         )
-        queries.append(query)
+        self._concurrency_semaphore = asyncio.BoundedSemaphore(self._MAX_CONCURRENCY)
 
-    async with db.session() as session:
-        combined_query = union_all(*queries).limit(MAX_DATASETS_PER_QUERY)
-        dataset_ids = await session.scalars(combined_query)
-    return list(dataset_ids)
+    async def run(self, ctx: TaskContext) -> TaskRunResult[list[DatasetId]]:
+        datasets = await self._find_datasets_to_publish(ctx)
+        self._log.info("datasets found", count=len(datasets))
+        if len(datasets) == 0:
+            return TaskRunResult("no-work-found", data=[])
 
+        async with asyncio.TaskGroup() as tg:
+            tasks = [
+                tg.create_task(self._publish_datasets(ctx, batch))
+                for batch in batched(datasets, self._BATCH_SIZE)
+            ]
+        successful_datasets: list[DatasetId] = []
+        for task in tasks:
+            successful_datasets.extend(task.result())
+        return TaskRunResult("success", data=successful_datasets)
 
-async def _publish_datasets(
-    ctx: TaskContext, config: TransferConfig, datasets: tuple[DatasetId, ...]
-) -> DatasetTransferTracker:
-    def publish() -> DatasetTransferTracker:
-        with (
-            ctx.butler_factory.create_butler(config.source_repository) as source_butler,
-            ctx.butler_factory.create_butler(config.target_repository) as target_butler,
-        ):
-            tracker = DatasetTransferTracker(
-                source_repository=config.source_repository, target_repository=config.target_repository
+    async def _find_datasets_to_publish(self, ctx: TaskContext) -> list[DatasetId]:
+        queries: list[Select[UUID]] = []
+        for group in ctx.dataset_config.filter(lambda c: c.publish_to_public).group_by_origin():
+            query = create_transfer_lookup_query("prompt_prep", "prompt_google_int").where(
+                Dataset.origin == group.origin,
+                Dataset.dataset_type.in_(group.dataset_types),
             )
-            found_refs = tracker.find_datasets(source_butler, datasets)
-            transfer_datasets_in_place(source_butler, target_butler, found_refs)
-            target_butler.registry.associate(OUTPUT_TAGGED_COLLECTION, found_refs)
-            tracker.mark_refs_completed(found_refs)
-            return tracker
+            queries.append(query)
 
-    return await asyncio.to_thread(publish)
+        async with ctx.state_database.session() as session:
+            combined_query = union_all(*queries).limit(MAX_DATASETS_PER_QUERY)
+            dataset_ids = await session.scalars(combined_query)
+        return list(dataset_ids)
+
+    async def _publish_datasets(self, ctx: TaskContext, datasets: tuple[DatasetId, ...]) -> set[DatasetId]:
+        async with self._concurrency_semaphore:
+
+            def publish() -> DatasetTransferTracker:
+                with (
+                    ctx.butler_factory.create_butler(self._source_repository) as source_butler,
+                    ctx.butler_factory.create_butler(self._target_repository) as target_butler,
+                ):
+                    tracker = DatasetTransferTracker(
+                        source_repository=self._source_repository, target_repository=self._target_repository
+                    )
+                    found_refs = tracker.find_datasets(source_butler, datasets)
+                    transfer_datasets_in_place(source_butler, target_butler, found_refs)
+                    target_butler.registry.associate(OUTPUT_TAGGED_COLLECTION, found_refs)
+                    tracker.mark_refs_completed(found_refs)
+                    return tracker
+
+        result = await asyncio.to_thread(publish)
+        async with ctx.state_database.session() as session:
+            await result.persist_transfer_result(session)
+            await session.commit()
+
+        return result.get_complete_datasets()
 
 
-publish_to_google_task = TransferTask(
-    TransferConfig(
-        source_repository="prompt_prep",
-        target_repository="prompt_google_int",
-        dataset_lookup_function=_find_datasets_to_publish,
-        dataset_transfer_function=_publish_datasets,
-        batch_size=10000,
-        max_concurrency=16,
-        target_time_column=None,
-    )
+publish_to_google_task = PublishTask(
+    source_repository="prompt_prep",
+    target_repository="prompt_google_int",
 )
