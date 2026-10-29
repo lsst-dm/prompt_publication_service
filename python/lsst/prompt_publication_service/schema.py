@@ -85,6 +85,20 @@ class DimensionRecordStatus(IntEnum):
     """
 
 
+class VisitPublicationStatus(IntEnum):
+    """Enum representing the publication status of a visit in a given
+    repository.
+    """
+
+    # These integer values are persisted in the database -- do not re-use
+    # an integer value when making changes.
+
+    NEVER_PRESENT = 0
+    """The visit has never been published to this location."""
+    PUBLISHED = 1
+    """The visit has been published to this location."""
+
+
 class _EnumColumn[T: IntEnum](types.TypeDecorator):
     """SQLAlchemy column type for storing an ``IntEnum`` value in the DB as a
     SMALLINT value.
@@ -138,8 +152,16 @@ def _dimension_status_column(
     return mapped_column(_EnumColumn(DimensionRecordStatus), default=default, index=True)
 
 
+def _publication_status_column() -> Mapped[VisitPublicationStatus]:
+    return mapped_column(
+        _EnumColumn(VisitPublicationStatus), default=VisitPublicationStatus.NEVER_PRESENT, index=True
+    )
+
+
 class Visit(Base):
-    """Table tracking the status of Butler `visit` dimension metadata."""
+    """Table tracking the status of Butler visits, both `visit` dimension
+    metadata and publication status for the corresponding datasets.
+    """
 
     __tablename__ = "visit"
 
@@ -164,18 +186,32 @@ class Visit(Base):
     repo_main_status = _dimension_status_column()
     """Status of these dimension records in the ``/repo/main`` Butler
     repository."""
-    google_int_status = _dimension_status_column()
-    """Status of these dimension records in the ``prompt`` Butler repository on
-    the Google RSP integration testing environment.  """
-    google_prod_status = _dimension_status_column()
+    google_int_status = _publication_status_column()
+    """Status of this visit's dimension records and associated datasets in the
+    ``prompt`` Butler repository on the Google RSP integration testing
+    environment.  """
+    google_prod_status = _publication_status_column()
     """Status of these dimension records in the ``prompt`` Butler repository on
     the Google RSP production environment.  """
 
     @classmethod
     def get_status_column(cls, repository: ButlerRepository) -> Mapped[DimensionRecordStatus]:
+        assert repository in ("embargo_status", "prompt_prep_status", "repo_main_status")
         return getattr(cls, cls.get_status_column_name(repository))
 
     def set_status_column(self, repository: ButlerRepository, status: DimensionRecordStatus) -> None:
+        assert repository in ("embargo_status", "prompt_prep_status", "repo_main_status")
+        setattr(self, self.get_status_column_name(repository), status)
+
+    @classmethod
+    def get_publication_status_column(cls, repository: ButlerRepository) -> Mapped[VisitPublicationStatus]:
+        assert repository in ("google_int_status", "google_prod_status")
+        return getattr(cls, cls.get_status_column_name(repository))
+
+    def set_publication_status_column(
+        self, repository: ButlerRepository, status: VisitPublicationStatus
+    ) -> None:
+        assert repository in ("google_int_status", "google_prod_status")
         setattr(self, self.get_status_column_name(repository), status)
 
     @classmethod

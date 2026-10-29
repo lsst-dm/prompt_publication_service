@@ -95,3 +95,9 @@ class DatasetTypeConfiguration:
             groups.append(ConfigurationGroup(None, origin, dataset_types))
 
         return groups
+
+    def dataset_types(self) -> set[str]:
+        dataset_types: set[str] = set()
+        for group in self.group_by_origin():
+            dataset_types.update(group.dataset_types)
+        return dataset_types
