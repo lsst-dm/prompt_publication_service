@@ -21,7 +21,7 @@
 
 import datetime
 import tempfile
-from collections.abc import AsyncIterator, Iterable, Iterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import AsyncExitStack, ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,7 +30,6 @@ from lsst.daf.butler import Butler, Config, DatasetType, LabeledButlerFactory
 
 from .configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from .database import Database
-from .schema import ButlerRepository
 from .tasks.base import TaskContext
 from .tasks.impl.process_pool import initialize_worker_pool
 
@@ -151,9 +150,7 @@ def setup_butler_repos() -> Iterator[dict[str, str]]:
 
 
 @asynccontextmanager
-async def setup_task_context_with_empty_repos(
-    repos: Iterable[ButlerRepository],
-) -> AsyncIterator[TaskContext]:
+async def setup_task_context_with_empty_repos() -> AsyncIterator[TaskContext]:
     async with AsyncExitStack() as exit_stack:
         repo_paths = exit_stack.enter_context(setup_butler_repos())
         butler_factory = exit_stack.enter_context(LabeledButlerFactory(repo_paths, writeable=True))
