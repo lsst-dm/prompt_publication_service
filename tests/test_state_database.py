@@ -113,7 +113,7 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(visit_datasets), 2)
             self.assertEqual(visit_datasets[0].id, pvi1.id)
             self.assertIs(visit_datasets[0].origin, DatasetOrigin.PROMPT_PROCESSING)
-            self.assertEqual(visit_datasets[0].dataset_type, "preliminary_visit_image")
+            self.assertEqual(visit_datasets[0].dataset_type, "difference_image")
             self.assertEqual(visit_datasets[0].instrument, "LSSTCam")
             self.assertEqual(visit_datasets[0].visit, VISIT1.id)
             self.assertEqual(visit_datasets[0].butler_data_id, {"detector": 10})
@@ -126,7 +126,7 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(visit_datasets[1].id, pvi2.id)
             self.assertIs(visit_datasets[1].origin, DatasetOrigin.PROMPT_PROCESSING)
-            self.assertEqual(visit_datasets[1].dataset_type, "preliminary_visit_image")
+            self.assertEqual(visit_datasets[1].dataset_type, "difference_image")
             self.assertEqual(visit_datasets[1].instrument, "LSSTCam")
             self.assertEqual(visit_datasets[1].visit, VISIT2.id)
             self.assertEqual(visit_datasets[1].butler_data_id, {"detector": 11})

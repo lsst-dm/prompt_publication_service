@@ -71,8 +71,6 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
     {
         DatasetOrigin.PROMPT_PROCESSING: {
             # Tier 1
-            "preliminary_visit_image": _TIER1_PIXEL,
-            "preliminary_visit_image_background": _TIER1_PIXEL,
             "difference_kernel": _TIER1_NONPIXEL,
             # Tier 2
             "difference_image": _TIER2_PIXEL,
@@ -82,12 +80,10 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "dia_object_apdb": _TIER2_NONPIXEL,
             "marginal_new_dia_source": _TIER2_NONPIXEL,
             "regionTimeInfo": _TIER2_NONPIXEL,
-            # Tier 3
-            "ss_source_direct_detector": _TIER3_NONPIXEL,
-            "ss_object_direct_unassociated": _TIER3_NONPIXEL,
-            "ss_object_unassociated_detector": _TIER3_NONPIXEL,
-            "ss_source_detector": _TIER3_NONPIXEL,
+            "dia_source_visit": _TIER2_NONPIXEL,
             # Non-public
+            "preliminary_visit_image": _USDF_INTERNAL_PIXEL,
+            "template_detector": _USDF_INTERNAL_PIXEL,
             "dia_source_detector": _USDF_INTERNAL_NONPIXEL,
             "dia_source_schema": _USDF_INTERNAL_NONPIXEL,
             "dia_source_unfiltered": _USDF_INTERNAL_NONPIXEL,
@@ -97,7 +93,11 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "preloaded_dia_source": _USDF_INTERNAL_NONPIXEL,
             "preloaded_ss_object": _USDF_INTERNAL_NONPIXEL,
             "single_visit_star_schema": _USDF_INTERNAL_NONPIXEL,
-            "template_detector": _USDF_INTERNAL_PIXEL,
+            "ss_source_direct_detector": _USDF_INTERNAL_NONPIXEL,
+            "ss_object_direct_unassociated": _USDF_INTERNAL_NONPIXEL,
+            "ss_object_unassociated_detector": _USDF_INTERNAL_NONPIXEL,
+            "ss_source_detector": _USDF_INTERNAL_NONPIXEL,
+            "visit_summary_aggregate": _USDF_INTERNAL_NONPIXEL,
             # Miscellaneous provenance datasets (config/log/metadata/packages).
             "analyzeAssociateDiaSourceTiming_config": _PROVENANCE,
             "analyzeAssociateDiaSourceTiming_log": _PROVENANCE,
@@ -164,9 +164,6 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
             "mpSkyEphemerisQuery_metadata": _PROVENANCE,
             "packages": _PROVENANCE,
             "prompt_provenance": _PROVENANCE_INTERNAL,
-            "singleFrameDetectAndMeasure_config": _PROVENANCE,
-            "singleFrameDetectAndMeasure_log": _PROVENANCE,
-            "singleFrameDetectAndMeasure_metadata": _PROVENANCE,
             "standardizeDiaSource_config": _PROVENANCE,
             "standardizeDiaSource_log": _PROVENANCE,
             "standardizeDiaSource_metadata": _PROVENANCE,
@@ -176,9 +173,9 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
         },
         DatasetOrigin.DAYTIME_AP_CATCHUP: {
             # Tier 1
-            "preliminary_visit_summary": _TIER1_NONPIXEL,
-            # This may be replaced by a new dataset type called `ap_source`.
-            "single_visit_star_reprocessed_footprints": _TIER1_NONPIXEL,
+            "visit_image": _TIER1_PIXEL,
+            "visit_summary": _TIER1_NONPIXEL,
+            "prompt_source": _TIER1_NONPIXEL,
         },
     }
 )
