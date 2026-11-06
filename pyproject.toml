@@ -17,8 +17,12 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["uv_build<0.13"]
-build-backend = "uv_build"
+requires = ["setuptools>=84"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["python"]
+include = ["lsst.*"]
 
 [tool.uv.build-backend]
 module-name = "lsst.prompt_publication_service"
@@ -73,6 +77,10 @@ ignore_missing_imports = true
 [tool.uv.sources]
 lsst-daf-butler = { git = "https://github.com/lsst/daf_butler" }
 lsst-pipe-base = { git = "https://github.com/lsst/pipe_base" }
+
+[tool.uv]
+# Make venv compatible with VSCode's python support
+config-settings = { editable_mode = "compat" }
 
 [dependency-groups]
 dev = [

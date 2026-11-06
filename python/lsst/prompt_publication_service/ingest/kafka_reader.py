@@ -48,10 +48,16 @@ class KafkaReader(AbstractAsyncContextManager):
             # We manually call commit() to ensure at-least-once
             # processing of messages.
             enable_auto_commit=False,
-            # Start processing messages from the beginning of the queue.  We
+            # Start processing messages from the end of the queue.  We
             # will have committed offsets if we have processed some of the
             # messages already, in which case this setting is ignored.
-            auto_offset_reset="earliest",
+            # This is not using "earliest" because Kafka at USDF is configured
+            # to time out saved offsets after 30 days -- which can be longer
+            # than the service is offline during telescope downtime.
+            # Ingestion from Kafka is idempotent in the short term, but there
+            # may be different results after long time periods when datasets
+            # are manipulated (deleted from embargo, etc.)
+            auto_offset_reset="latest",
             # Prompt Processing Butler Writer is using transactions.
             isolation_level="read_committed",
         )
