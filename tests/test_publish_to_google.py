@@ -110,6 +110,20 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             (await get_visit_state(self.ctx, VISIT1.id)).google_int_status,
             VisitPublicationStatus.PUBLISHED,
         )
+        self.assertEqual(
+            (await get_dataset_state(self.ctx, visit1_10.id)).google_int_status, DatasetLocationStatus.PRESENT
+        )
+        self.assertEqual(
+            (await get_dataset_state(self.ctx, visit1_11.id)).google_int_status, DatasetLocationStatus.PRESENT
+        )
+        self.assertEqual(
+            (await get_dataset_state(self.ctx, visit1_10_unpublished.id)).google_int_status,
+            DatasetLocationStatus.NEVER_PRESENT,
+        )
+        self.assertEqual(
+            (await get_dataset_state(self.ctx, visit1_11_unpublished.id)).google_int_status,
+            DatasetLocationStatus.NEVER_PRESENT,
+        )
         self.assertEqual(self.google_butler.get(visit1_10), _BUTLER_PUT_PAYLOAD)
         self.assertIsNotNone(self.google_butler.get_dataset(visit1_11.id))
         self.assertIsNone(self.google_butler.get_dataset(visit1_10_unpublished.id))
@@ -143,6 +157,9 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             (await get_visit_state(self.ctx, VISIT1.id)).google_int_status,
             VisitPublicationStatus.INCOMPLETE,
+        )
+        self.assertEqual(
+            (await get_dataset_state(self.ctx, ref.id)).prompt_prep_status, DatasetLocationStatus.MISSING
         )
         self.assertEqual(
             [],
