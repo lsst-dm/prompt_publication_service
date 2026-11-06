@@ -97,7 +97,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.google_butler.get_dataset(visit1_10))
         self.assertIsNone(self.google_butler.get_dataset(visit1_10_unpublished))
 
-        # Mark the remaining published dataset present, and visit publication
+        # Mark the remaining publishable dataset present, and visit publication
         # should proceed.
         await self._mark_dataset_present_in_prompt_prep(visit1_11)
         await publish_to_google_task.run(self.ctx)
@@ -116,4 +116,32 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             (await get_visit_state(self.ctx, VISIT2.id)).google_int_status,
             VisitPublicationStatus.NEVER_PRESENT,
+        )
+
+    async def test_publish_incomplete_visit(self) -> None:
+        """Test that if datasets are missing when we attempt to publish a
+        visit, the visit is not published and marked as incomplete.
+        """
+        # Set up a single visit dataset, then delete it from the prompt prep
+        # repo.
+        dataset = await self._set_up_dataset(
+            VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT1.id, "detector": 10}
+        )
+        await self._mark_dataset_present_in_prompt_prep(dataset)
+        ref = self.prompt_prep_butler.get_dataset(dataset)
+        assert ref is not None
+        self.prompt_prep_butler.pruneDatasets([ref], unstore=True, purge=True)
+
+        await publish_to_google_task.run(self.ctx)
+        # Visit is marked incomplete, and records are not transferred to
+        # Google.
+        self.assertEqual(
+            (await get_visit_state(self.ctx, VISIT1.id)).google_int_status,
+            VisitPublicationStatus.INCOMPLETE,
+        )
+        self.assertEqual(
+            [],
+            self.google_butler.query_dimension_records(
+                "visit", data_id={"instrument": "LSSTCam", "visit": VISIT1.id}, explain=False
+            ),
         )
