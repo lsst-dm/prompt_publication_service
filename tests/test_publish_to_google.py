@@ -2,7 +2,7 @@ import unittest
 
 import sqlalchemy
 
-from lsst.daf.butler import Butler, CollectionType, DatasetId
+from lsst.daf.butler import Butler, CollectionType, DatasetRef
 from lsst.prompt_publication_service.register import register_embargo_datasets
 from lsst.prompt_publication_service.schema import (
     Dataset,
@@ -20,6 +20,7 @@ from lsst.prompt_publication_service.test_utils import (
     VISIT1,
     VISIT2,
     VISIT_DATASET_TYPE,
+    get_dataset_state,
     get_visit_state,
     load_base_dimension_data,
     load_visit_dimension_data,
@@ -45,7 +46,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         load_base_dimension_data(self.google_butler)
         self.google_butler.collections.register(OUTPUT_TAGGED_COLLECTION, CollectionType.TAGGED)
 
-    async def _set_up_dataset(self, dataset_type: str, data_id: dict[str, str | int]) -> DatasetId:
+    async def _set_up_dataset(self, dataset_type: str, data_id: dict[str, str | int]) -> DatasetRef:
         """Create a dataset in the prompt_prep repo and register it in the
         state database.
         """
@@ -53,19 +54,23 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         await register_embargo_datasets(
             self.ctx.state_database, DatasetOrigin.PROMPT_PROCESSING, self.prompt_prep_butler, [ref]
         )
-        return ref.id
+        return ref
 
-    async def _mark_dataset_present_in_prompt_prep(self, dataset_id: DatasetId) -> None:
+    async def _mark_dataset_present_in_prompt_prep(self, ref: DatasetRef) -> None:
         async with self.ctx.state_database.session() as session:
             query = (
                 sqlalchemy.update(Dataset)
-                .where(Dataset.id == dataset_id)
+                .where(Dataset.id == ref.id)
                 .values(prompt_prep_status=DatasetLocationStatus.PRESENT)
             )
             await session.execute(query)
             await session.commit()
 
     async def test_publish(self) -> None:
+        """Test basic functionality of visit publication, confirming that
+        datasets aren't published until all datasets for the visit are
+        available and that each visit is published separately.
+        """
         # Two datasets that will be published together for a single visit.
         visit1_10 = await self._set_up_dataset(
             VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT1.id, "detector": 10}
@@ -94,8 +99,8 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             (await get_visit_state(self.ctx, VISIT1.id)).google_int_status,
             VisitPublicationStatus.NEVER_PRESENT,
         )
-        self.assertIsNone(self.google_butler.get_dataset(visit1_10))
-        self.assertIsNone(self.google_butler.get_dataset(visit1_10_unpublished))
+        self.assertIsNone(self.google_butler.get_dataset(visit1_10.id))
+        self.assertIsNone(self.google_butler.get_dataset(visit1_10_unpublished.id))
 
         # Mark the remaining publishable dataset present, and visit publication
         # should proceed.
@@ -105,12 +110,10 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             (await get_visit_state(self.ctx, VISIT1.id)).google_int_status,
             VisitPublicationStatus.PUBLISHED,
         )
-        ref = self.google_butler.get_dataset(visit1_10)
-        assert ref is not None
-        self.assertEqual(self.google_butler.get(ref), _BUTLER_PUT_PAYLOAD)
-        self.assertIsNotNone(self.google_butler.get_dataset(visit1_11))
-        self.assertIsNone(self.google_butler.get_dataset(visit1_10_unpublished))
-        self.assertIsNone(self.google_butler.get_dataset(visit1_11_unpublished))
+        self.assertEqual(self.google_butler.get(visit1_10), _BUTLER_PUT_PAYLOAD)
+        self.assertIsNotNone(self.google_butler.get_dataset(visit1_11.id))
+        self.assertIsNone(self.google_butler.get_dataset(visit1_10_unpublished.id))
+        self.assertIsNone(self.google_butler.get_dataset(visit1_11_unpublished.id))
 
         # Verify that each visit's state is tracked separately.
         self.assertEqual(
@@ -124,12 +127,10 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         """
         # Set up a single visit dataset, then delete it from the prompt prep
         # repo.
-        dataset = await self._set_up_dataset(
+        ref = await self._set_up_dataset(
             VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT1.id, "detector": 10}
         )
-        await self._mark_dataset_present_in_prompt_prep(dataset)
-        ref = self.prompt_prep_butler.get_dataset(dataset)
-        assert ref is not None
+        await self._mark_dataset_present_in_prompt_prep(ref)
         self.prompt_prep_butler.pruneDatasets([ref], unstore=True, purge=True)
 
         await publish_to_google_task.run(self.ctx)
@@ -144,4 +145,30 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             self.google_butler.query_dimension_records(
                 "visit", data_id={"instrument": "LSSTCam", "visit": VISIT1.id}, explain=False
             ),
+        )
+
+    async def test_publish_idempotency(self) -> None:
+        """Verify that publication is considered successful even if a previous
+        attempt updated the target Butler but failed before updating the state
+        database."""
+        ref = await self._set_up_dataset(
+            VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT1.id, "detector": 10}
+        )
+        await self._mark_dataset_present_in_prompt_prep(ref)
+        self.google_butler.transfer_from(
+            self.prompt_prep_butler,
+            [ref],
+            "unsafe_direct",
+            register_dataset_types=True,
+            transfer_dimensions=True,
+        )
+        self.google_butler.registry.associate(OUTPUT_TAGGED_COLLECTION, [ref])
+        await publish_to_google_task.run(self.ctx)
+
+        self.assertEqual(
+            (await get_visit_state(self.ctx, VISIT1.id)).google_int_status,
+            VisitPublicationStatus.PUBLISHED,
+        )
+        self.assertEqual(
+            (await get_dataset_state(self.ctx, ref.id)).google_int_status, DatasetLocationStatus.PRESENT
         )
