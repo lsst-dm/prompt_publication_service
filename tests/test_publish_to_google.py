@@ -114,6 +114,10 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(self.google_butler.get_dataset(visit1_11.id))
         self.assertIsNone(self.google_butler.get_dataset(visit1_10_unpublished.id))
         self.assertIsNone(self.google_butler.get_dataset(visit1_11_unpublished.id))
+        self.assertCountEqual(
+            [visit1_10, visit1_11],
+            self.google_butler.query_datasets(VISIT_DATASET_TYPE, OUTPUT_TAGGED_COLLECTION),
+        )
 
         # Verify that each visit's state is tracked separately.
         self.assertEqual(
