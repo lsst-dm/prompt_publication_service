@@ -23,8 +23,6 @@ import unittest
 from datetime import timedelta
 from uuid import UUID
 
-from sqlalchemy import select
-
 from lsst.daf.butler import Butler, CollectionType
 from lsst.prompt_publication_service.date_time_source import DateTimeSource
 from lsst.prompt_publication_service.register import register_embargo_datasets
@@ -48,6 +46,7 @@ from lsst.prompt_publication_service.test_utils import (
     VISIT1,
     VISIT2,
     VISIT_DATASET_TYPE,
+    get_dataset_state,
     load_base_dimension_data,
     load_visit_dimension_data,
     register_test_dataset_types,
@@ -372,8 +371,4 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.google_int_status, DatasetLocationStatus.PRESENT)
 
     async def _get_dataset_state(self, dataset_id: UUID) -> Dataset:
-        async with self.state_db.session() as session:
-            sql = select(Dataset).where(Dataset.id == dataset_id)
-            dataset = await session.scalar(sql)
-            assert dataset is not None, f"Expected to find dataset '{dataset_id} in the state DB"
-            return dataset
+        return await get_dataset_state(self.context, dataset_id)

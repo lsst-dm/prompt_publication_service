@@ -25,11 +25,15 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import AsyncExitStack, ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import UUID
+
+from sqlalchemy import select
 
 from lsst.daf.butler import Butler, Config, DatasetType, LabeledButlerFactory
 
 from .configs.prompt_processing_outputs import PROMPT_PROCESSING_OUTPUT_CONFIG
 from .database import Database
+from .schema import Dataset, Visit
 from .tasks.base import TaskContext
 from .tasks.impl.process_pool import initialize_worker_pool
 
@@ -162,3 +166,19 @@ async def setup_task_context_with_empty_repos() -> AsyncIterator[TaskContext]:
             state_database=state_database,
             worker_pool=worker_pool,
         )
+
+
+async def get_dataset_state(ctx: TaskContext, dataset_id: UUID) -> Dataset:
+    async with ctx.state_database.session() as session:
+        sql = select(Dataset).where(Dataset.id == dataset_id)
+        dataset = await session.scalar(sql)
+        assert dataset is not None, f"Expected to find dataset '{dataset_id} in the state DB"
+        return dataset
+
+
+async def get_visit_state(ctx: TaskContext, visit_id: int) -> Visit:
+    async with ctx.state_database.session() as session:
+        sql = select(Visit).where(Visit.id == visit_id)
+        visit = await session.scalar(sql)
+        assert visit is not None, f"Expected to find visit '{visit_id} in the state DB"
+        return visit
