@@ -130,16 +130,24 @@ class PublishTask(Task):
                 )
                 return _VisitPublishResult(datasets=tracker, status=VisitPublicationStatus.INCOMPLETE)
 
-            # Publish visit and visit-associated dimension records.
-            data_coordinate = DataCoordinate.standardize(
-                {"instrument": visit.instrument, "visit": visit.id},
-                universe=source_butler.dimensions,
-            )
-            target_butler.transfer_dimension_records_from(source_butler, [data_coordinate])
+            # Register any unknown dataset types outside the transaction,
+            # because Butler doesn't allow dataset types to be registered
+            # within an explicit transaction.
+            dataset_types = {ref.datasetType for ref in found_refs}
+            for dt in dataset_types:
+                target_butler.registry.registerDatasetType(dt)
 
-            # Transfer the datasets associated with the visit.
-            transfer_datasets_in_place(source_butler, target_butler, found_refs)
-            target_butler.registry.associate(OUTPUT_TAGGED_COLLECTION, found_refs)
+            # Make the entire publication process atomic.
+            with target_butler.transaction():
+                # Publish visit and visit-associated dimension records.
+                data_coordinate = DataCoordinate.standardize(
+                    {"instrument": visit.instrument, "visit": visit.id},
+                    universe=source_butler.dimensions,
+                )
+                target_butler.transfer_dimension_records_from(source_butler, [data_coordinate])
+                # Transfer the datasets associated with the visit.
+                transfer_datasets_in_place(source_butler, target_butler, found_refs)
+                target_butler.registry.associate(OUTPUT_TAGGED_COLLECTION, found_refs)
             tracker.mark_refs_completed(found_refs)
             return _VisitPublishResult(datasets=tracker, status=VisitPublicationStatus.PUBLISHED)
 
