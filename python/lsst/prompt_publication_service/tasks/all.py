@@ -31,5 +31,4 @@ ALL_TASKS: tuple[Task, ...] = (
     publish_to_google_task,
     DimensionRecordCopyTask("embargo", "prompt_prep"),
     DimensionRecordCopyTask("prompt_prep", "/repo/main"),
-    DimensionRecordCopyTask("prompt_prep", "prompt_google_int"),
 )

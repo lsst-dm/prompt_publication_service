@@ -36,6 +36,7 @@ from lsst.prompt_publication_service.schema import (
     DimensionRecordStatus,
     UnknownDataset,
     Visit,
+    VisitPublicationStatus,
 )
 from lsst.prompt_publication_service.test_utils import (
     EXPOSURE1,
@@ -201,8 +202,8 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             self.assertIs(row.embargo_status, DimensionRecordStatus.INITIAL)
             self.assertIs(row.prompt_prep_status, DimensionRecordStatus.NEVER_PRESENT)
             self.assertIs(row.repo_main_status, DimensionRecordStatus.NEVER_PRESENT)
-            self.assertIs(row.google_int_status, DimensionRecordStatus.NEVER_PRESENT)
-            self.assertIs(row.google_prod_status, DimensionRecordStatus.NEVER_PRESENT)
+            self.assertIs(row.google_int_status, VisitPublicationStatus.NEVER_PRESENT)
+            self.assertIs(row.google_prod_status, VisitPublicationStatus.NEVER_PRESENT)
 
         self.assertEqual(len(visits), 2)
 
