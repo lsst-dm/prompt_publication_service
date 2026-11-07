@@ -42,6 +42,13 @@ OUTPUT_TAGGED_COLLECTION = "Prompt/Available/Outputs"
 
 
 class PublishTask(Task):
+    """Task for publishing visits from prompt_prep to the end-user Google repositories.
+
+    For each visit, the dimension records and associated datasets are
+    transferred to the target repository as a single atomic unit.
+    No files are transferred -- only the Butler Postgres database is modified.
+    """
+
     _MAX_CONCURRENCY = 16
     _MAX_VISITS_PER_QUERY = 1000
 
@@ -117,7 +124,6 @@ class PublishTask(Task):
             ctx.butler_factory.create_butler(self._source_repository) as source_butler,
             ctx.butler_factory.create_butler(self._target_repository) as target_butler,
         ):
-            # Confirm that all
             tracker = DatasetTransferTracker(
                 source_repository=self._source_repository, target_repository=self._target_repository
             )

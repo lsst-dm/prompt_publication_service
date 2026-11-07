@@ -169,6 +169,9 @@ async def setup_task_context_with_empty_repos() -> AsyncIterator[TaskContext]:
 
 
 async def get_dataset_state(ctx: TaskContext, dataset_id: UUID) -> Dataset:
+    """Return the Dataset row from the state database for the given dataset
+    UUID.
+    """
     async with ctx.state_database.session() as session:
         sql = select(Dataset).where(Dataset.id == dataset_id)
         dataset = await session.scalar(sql)
@@ -177,6 +180,7 @@ async def get_dataset_state(ctx: TaskContext, dataset_id: UUID) -> Dataset:
 
 
 async def get_visit_state(ctx: TaskContext, visit_id: int) -> Visit:
+    """Return the Visit row from the state database for the given visit ID."""
     async with ctx.state_database.session() as session:
         sql = select(Visit).where(Visit.id == visit_id)
         visit = await session.scalar(sql)
