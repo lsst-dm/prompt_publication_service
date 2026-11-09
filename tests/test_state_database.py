@@ -32,7 +32,6 @@ from lsst.prompt_publication_service.register import register_dataset_batch_file
 from lsst.prompt_publication_service.schema import (
     Dataset,
     DatasetLocationStatus,
-    DatasetOrigin,
     DimensionRecordStatus,
     UnknownDataset,
     Visit,
@@ -94,9 +93,7 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
         async def register_datasets() -> None:
             with capture_logs() as logs:
-                await register_dataset_batch_file(
-                    self.db, DatasetOrigin.PROMPT_PROCESSING, self.butler, batch_file
-                )
+                await register_dataset_batch_file(self.db, self.butler, batch_file)
             self.assertEqual(len(logs), 1)
             self.assertEqual(logs[0]["log_level"], "warning")
             self.assertIn("f3b0055f-7375-4154-b1e4-922656c0af44", logs[0]["missing_ids"])
@@ -113,7 +110,6 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(len(visit_datasets), 2)
             self.assertEqual(visit_datasets[0].id, pvi1.id)
-            self.assertIs(visit_datasets[0].origin, DatasetOrigin.PROMPT_PROCESSING)
             self.assertEqual(visit_datasets[0].dataset_type, "difference_image")
             self.assertEqual(visit_datasets[0].instrument, "LSSTCam")
             self.assertEqual(visit_datasets[0].visit, VISIT1.id)
@@ -126,7 +122,6 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(visit_datasets[0].unembargo_time)
 
             self.assertEqual(visit_datasets[1].id, pvi2.id)
-            self.assertIs(visit_datasets[1].origin, DatasetOrigin.PROMPT_PROCESSING)
             self.assertEqual(visit_datasets[1].dataset_type, "difference_image")
             self.assertEqual(visit_datasets[1].instrument, "LSSTCam")
             self.assertEqual(visit_datasets[1].visit, VISIT2.id)
@@ -140,7 +135,6 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(len(nonvisit_datasets), 1)
             self.assertEqual(nonvisit_datasets[0].id, rti.id)
-            self.assertEqual(nonvisit_datasets[0].origin, DatasetOrigin.PROMPT_PROCESSING)
             self.assertEqual(nonvisit_datasets[0].dataset_type, NONVISIT_DATASET_TYPE)
             self.assertEqual(nonvisit_datasets[0].instrument, "LSSTCam")
             self.assertEqual(
@@ -159,7 +153,6 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(len(exposure_datasets), 2)
             self.assertEqual(exposure_datasets[0].id, exposure_dataset1.id)
-            self.assertEqual(exposure_datasets[0].origin, DatasetOrigin.PROMPT_PROCESSING)
             self.assertEqual(exposure_datasets[0].dataset_type, EXPOSURE_DATASET_TYPE)
             self.assertEqual(exposure_datasets[0].instrument, "LSSTCam")
             self.assertEqual(exposure_datasets[0].visit, EXPOSURE1.id)
@@ -172,7 +165,6 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(exposure_datasets[0].unembargo_time)
 
             self.assertEqual(exposure_datasets[1].id, exposure_dataset2.id)
-            self.assertEqual(exposure_datasets[1].origin, DatasetOrigin.PROMPT_PROCESSING)
             self.assertEqual(exposure_datasets[1].dataset_type, EXPOSURE_DATASET_TYPE)
             self.assertEqual(exposure_datasets[1].instrument, "LSSTCam")
             self.assertEqual(exposure_datasets[1].visit, EXPOSURE2.id)
@@ -188,7 +180,6 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
                 unknowns = list(await session.scalars(select(UnknownDataset)))
             self.assertEqual(len(unknowns), 1)
             self.assertEqual(unknowns[0].id, UUID("f3b0055f-7375-4154-b1e4-922656c0af44"))
-            self.assertEqual(unknowns[0].origin, DatasetOrigin.PROMPT_PROCESSING)
             self.assertIn(batch_data["batch_id"], unknowns[0].error)
 
         await register_datasets()

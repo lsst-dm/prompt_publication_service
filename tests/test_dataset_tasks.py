@@ -29,7 +29,6 @@ from lsst.prompt_publication_service.register import register_embargo_datasets
 from lsst.prompt_publication_service.schema import (
     Dataset,
     DatasetLocationStatus,
-    DatasetOrigin,
 )
 from lsst.prompt_publication_service.tasks.dimension_record_copy import DimensionRecordCopyTask
 from lsst.prompt_publication_service.tasks.publish_to_google import (
@@ -101,9 +100,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         )
 
         datasets = [pvi1, pvi2, unpublished_visit, nonvisit, exposure]
-        await register_embargo_datasets(
-            self.state_db, DatasetOrigin.PROMPT_PROCESSING, self.embargo_butler, datasets
-        )
+        await register_embargo_datasets(self.state_db, self.embargo_butler, datasets)
 
         # Time that is after the end of the first visit, but before the end of
         # the second visit.
@@ -260,9 +257,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         ref3 = self.embargo_butler.put(
             3, NONVISIT_DATASET_TYPE, instrument="LSSTCam", detector=10, group="2025-12-03T07:58:10.858"
         )
-        await register_embargo_datasets(
-            self.state_db, DatasetOrigin.PROMPT_PROCESSING, self.embargo_butler, [ref1, ref2, ref3]
-        )
+        await register_embargo_datasets(self.state_db, self.embargo_butler, [ref1, ref2, ref3])
         # Transfer required dimension records.
         await DimensionRecordCopyTask("embargo", "prompt_prep").run(self.context)
         await DimensionRecordCopyTask("prompt_prep", "/repo/main").run(self.context)
@@ -317,9 +312,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         ref = self.embargo_butler.put(
             1, NONVISIT_DATASET_TYPE, instrument="LSSTCam", detector=10, group="2025-12-03T07:58:25.583"
         )
-        await register_embargo_datasets(
-            self.state_db, DatasetOrigin.PROMPT_PROCESSING, self.embargo_butler, [ref]
-        )
+        await register_embargo_datasets(self.state_db, self.embargo_butler, [ref])
         # Transfer required dimension records.
         await DimensionRecordCopyTask("embargo", "prompt_prep").run(self.context)
         await DimensionRecordCopyTask("prompt_prep", "/repo/main").run(self.context)
