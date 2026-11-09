@@ -29,22 +29,6 @@ from sqlalchemy import JSON, ForeignKeyConstraint, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
-class DatasetOrigin(IntEnum):
-    """Service/process that this dataset originated from."""
-
-    # These integer values are persisted in the database -- do not re-use
-    # an integer value when making changes.
-
-    PROMPT_PROCESSING = 1
-    """Datasets created by prompt processing worker pods during the observing
-    night.
-    """
-    DAYTIME_AP_CATCHUP = 2
-    """Datasets created by alert processing 'catchup' batch processing after
-    the night is over.
-    """
-
-
 class DatasetLocationStatus(IntEnum):
     """Enum representing the status of a dataset in a given repository."""
 
@@ -232,8 +216,6 @@ class Dataset(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     """Butler Dataset UUID."""
-    origin: Mapped[DatasetOrigin] = mapped_column(_EnumColumn(DatasetOrigin))
-    """Which system/process generated this data."""
     dataset_type: Mapped[str]
     """Name of Butler DatasetType."""
     instrument: Mapped[str] = mapped_column(nullable=True)
@@ -281,8 +263,8 @@ class Dataset(Base):
         ForeignKeyConstraint(["visit", "instrument"], ["visit.id", "visit.instrument"]),
         # For queries trying to determine which datasets need to be transferred
         # from one repository or another, we always have equality constraints
-        # on dataset_type+origin (because rules are defined on a
-        # per-origin-per-dataset-type basis) and prompt_prep_status (because
+        # on dataset_type (because rules are defined on a
+        # per-dataset-type basis) and prompt_prep_status (because
         # prompt_prep is the 'central' repository which is always involved in
         # transfers.)
         #
@@ -292,7 +274,7 @@ class Dataset(Base):
         # vs consistency/reliability of Postgres' query planning, so I'm
         # leaning towards the latter.
         *(
-            Index(f"dataset_{column}_lookup", column, "prompt_prep_status", "origin", "dataset_type")
+            Index(f"dataset_{column}_lookup", column, "prompt_prep_status", "dataset_type")
             for column in (
                 "embargo_status",
                 "repo_main_status",
@@ -321,8 +303,6 @@ class UnknownDataset(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     """Butler Dataset UUID."""
-    origin: Mapped[DatasetOrigin] = mapped_column(_EnumColumn(DatasetOrigin))
-    """Which system/process generated this data."""
     error: Mapped[str]
     """Human readable string describing why this dataset is being tracked in
     this table.
