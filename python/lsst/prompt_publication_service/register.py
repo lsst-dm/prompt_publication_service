@@ -33,7 +33,7 @@ from lsst.resources import ResourcePath
 
 from .database import Database
 from .logging import get_global_logger
-from .schema import Dataset, DatasetLocationStatus, UnknownDataset, Visit
+from .schema import Dataset, DatasetLocationStatus, DayObs, UnknownDataset, Visit
 
 _LOG = get_global_logger()
 
@@ -118,8 +118,12 @@ async def register_embargo_datasets(
     visit_rows = [
         _convert_visit_record_to_visit_row(record) for record in visit_mapper.get_all_visit_records()
     ]
+    day_obs_values = {visit["day_obs"] for visit in visit_rows}
     dataset_rows = [_convert_ref_to_dataset_row(ref, visit_mapper) for ref in datasets]
     async with db.session() as session:
+        if day_obs_values:
+            day_obs_rows = [{"id": value} for value in day_obs_values]
+            await session.execute(db.insert_if_not_exists(DayObs), day_obs_rows)
         if visit_rows:
             await session.execute(db.insert_if_not_exists(Visit), visit_rows)
         if missing:
