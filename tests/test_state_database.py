@@ -32,6 +32,8 @@ from lsst.prompt_publication_service.register import register_dataset_batch_file
 from lsst.prompt_publication_service.schema import (
     Dataset,
     DatasetLocationStatus,
+    DayObs,
+    DaytimeApStatus,
     DimensionRecordStatus,
     UnknownDataset,
     Visit,
@@ -182,6 +184,12 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(unknowns[0].id, UUID("f3b0055f-7375-4154-b1e4-922656c0af44"))
             self.assertIn(batch_data["batch_id"], unknowns[0].error)
 
+            async with self.db.session() as session:
+                dayobs_rows = list(await session.scalars(select(DayObs)))
+            self.assertEqual(len(dayobs_rows), 1)
+            self.assertEqual(dayobs_rows[0].id, 20251202)
+            self.assertEqual(dayobs_rows[0].daytime_ap_status, DaytimeApStatus.INCOMPLETE)
+
         await register_datasets()
         await check_datasets()
 
@@ -219,9 +227,16 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             dataset = await session.scalar(select(Dataset).where(Dataset.id == pvi1.id))
             assert dataset is not None
             dataset.prompt_prep_status = DatasetLocationStatus.PRESENT
+
+            day_obs = await session.scalar(select(DayObs).where(DayObs.id == 20251202))
+            assert day_obs is not None
+            day_obs.daytime_ap_status = DaytimeApStatus.COMPLETED
             await session.commit()
         await register_datasets()
         async with self.db.session() as session:
             dataset = await session.scalar(select(Dataset).where(Dataset.id == pvi1.id))
             assert dataset is not None
             self.assertEqual(dataset.prompt_prep_status, DatasetLocationStatus.PRESENT)
+            day_obs = await session.scalar(select(DayObs).where(DayObs.id == 20251202))
+            assert day_obs is not None
+            self.assertEqual(day_obs.daytime_ap_status, DaytimeApStatus.COMPLETED)

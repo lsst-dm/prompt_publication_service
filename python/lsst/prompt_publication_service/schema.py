@@ -25,7 +25,7 @@ from typing import Any, Literal, TypeAlias
 from uuid import UUID
 
 import sqlalchemy.types as types
-from sqlalchemy import JSON, ForeignKeyConstraint, Index
+from sqlalchemy import JSON, ForeignKey, ForeignKeyConstraint, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -87,6 +87,18 @@ class VisitPublicationStatus(IntEnum):
     """
 
 
+class DaytimeApStatus(IntEnum):
+    """Enum representing the status of Daytime AP processing."""
+
+    # These integer values are persisted in the database -- do not re-use
+    # an integer value when making changes.
+
+    INCOMPLETE = 0
+    """Daytime AP has not yet finished generating its datasets."""
+    COMPLETED = 1
+    """Daytime AP has run to completion and its outputs are finalized."""
+
+
 class _EnumColumn[T: IntEnum](types.TypeDecorator):
     """SQLAlchemy column type for storing an ``IntEnum`` value in the DB as a
     SMALLINT value.
@@ -146,6 +158,19 @@ def _publication_status_column() -> Mapped[VisitPublicationStatus]:
     )
 
 
+class DayObs(Base):
+    """Table tracking the status of processes that run on a per-day basis."""
+
+    __tablename__ = "day_obs"
+
+    id: Mapped[int] = mapped_column(types.Integer, primary_key=True)
+    """Observation date as the day_obs dimension value from the Butler."""
+    daytime_ap_status: Mapped[DaytimeApStatus] = mapped_column(
+        _EnumColumn(DaytimeApStatus), default=DaytimeApStatus.INCOMPLETE
+    )
+    """Status of daytime AP processing for this day_obs."""
+
+
 class Visit(Base):
     """Table tracking the status of Butler visits, both `visit` dimension
     metadata and publication status for the corresponding datasets.
@@ -157,7 +182,7 @@ class Visit(Base):
     """Dimension primary key from the Butler (visit or exposure)."""
     instrument: Mapped[str] = mapped_column(primary_key=True)
     """Instrument name from the Butler."""
-    day_obs: Mapped[int] = mapped_column(types.BigInteger)
+    day_obs: Mapped[int] = mapped_column(types.BigInteger, ForeignKey("day_obs.id"))
     """Observation date as stored in the Butler.  Note that this is the local
     date at the beginning of the observing night, and not necessarily the same
     calendar date as the exposure time below.
