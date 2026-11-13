@@ -25,14 +25,24 @@ import asyncio
 from dataclasses import dataclass
 
 import backoff
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.exc import OperationalError
 
 from lsst.daf.butler import DataCoordinate, DatasetId
 from lsst.daf.butler._rubin.transfer_datasets_in_place import transfer_datasets_in_place
 
+from ..config import DatasetTypeConfiguration
 from ..logging import get_global_logger
-from ..schema import ButlerRepository, Dataset, DatasetLocationStatus, Visit, VisitPublicationStatus
+from ..schema import (
+    ButlerRepository,
+    Dataset,
+    DatasetLocationStatus,
+    DayObs,
+    DaytimeApStatus,
+    PublishableDataset,
+    Visit,
+    VisitPublicationStatus,
+)
 from .base import Task, TaskContext, TaskRunResult
 from .impl.dataset_transfer_tracker import DatasetTransferTracker
 
@@ -76,25 +86,23 @@ class PublishTask(Task):
 
     async def _find_visits_to_publish(self, ctx: TaskContext) -> list[Visit]:
         """Finds the visits are ready to be published to Google."""
-        published_dataset_types = ctx.dataset_config.filter(
-            lambda item: item.publish_to_public
-        ).dataset_types()
 
         query = (
             select(Visit)
+            .join(DayObs)
             .where(
                 # Find visits that haven't been published yet...
                 Visit.get_publication_status_column(self._target_repository)
                 == VisitPublicationStatus.NEVER_PRESENT,
+                # ... that occurred on a day_obs where Daytime AP has
+                # completed...
+                DayObs.daytime_ap_status == DaytimeApStatus.COMPLETED,
                 # ... where all publishable datasets have been successfully
                 # unembargoed.
                 ~(
-                    select(Dataset.prompt_prep_status)
+                    self._generate_publishable_dataset_query(ctx.dataset_config, Visit)
                     .where(
-                        Dataset.prompt_prep_status != DatasetLocationStatus.PRESENT,
-                        Dataset.instrument == Visit.instrument,
-                        Dataset.visit == Visit.id,
-                        Dataset.dataset_type.in_(published_dataset_types),
+                        Dataset.get_status_column(self._source_repository) != DatasetLocationStatus.PRESENT,
                     )
                     .exists()
                 ),
@@ -105,6 +113,38 @@ class PublishTask(Task):
             visits = list(await session.scalars(query))
             session.expunge_all()
             return visits
+
+    def _generate_publishable_dataset_query(
+        self, config: DatasetTypeConfiguration, visit: Visit | type[Visit]
+    ) -> Select[Dataset]:
+        """Return a SQLAlchemy query that selects rows from the dataset table
+        that are candidates for publication as part of the given visit.  This
+        includes datasets that should eventually be published but are not
+        currently ready for publication -- that is, there is no constraint on
+        the presence of the dataset in prompt_prep.
+
+        Parameters
+        ----------
+        config
+            DatasetTypeConfiguration identifying which dataset types are
+            included in publication.
+        visit
+            The visit we will be searching for datasets -- either as a single
+            row, or as a table object from a parent query.
+        """
+        publishable_dataset_types = config.filter(lambda item: item.publish_to_public).dataset_types()
+        return (
+            select(Dataset)
+            .join(
+                PublishableDataset,
+                PublishableDataset.day_obs == visit.day_obs and PublishableDataset.dataset_id == Dataset.id,
+            )
+            .where(
+                Dataset.instrument == visit.instrument,
+                Dataset.visit == visit.id,
+                Dataset.dataset_type.in_(publishable_dataset_types),
+            )
+        )
 
     async def _publish_visit(self, ctx: TaskContext, visit: Visit) -> None:
         async with self._concurrency_semaphore:
@@ -158,11 +198,12 @@ class PublishTask(Task):
             return _VisitPublishResult(datasets=tracker, status=VisitPublicationStatus.PUBLISHED)
 
     async def _find_datasets_to_publish(self, ctx: TaskContext, visit: Visit) -> list[DatasetId]:
-        dataset_types = ctx.dataset_config.filter(lambda c: c.publish_to_public).dataset_types()
-        query = select(Dataset.id).where(
-            Dataset.visit == visit.id and Dataset.instrument == visit.instrument,
-            Dataset.dataset_type.in_(dataset_types),
-            Dataset.get_status_column(self._source_repository) == DatasetLocationStatus.PRESENT,
+        query = (
+            self._generate_publishable_dataset_query(ctx.dataset_config, visit)
+            .where(
+                Dataset.get_status_column(self._source_repository) == DatasetLocationStatus.PRESENT,
+            )
+            .with_only_columns(Dataset.id)
         )
         async with ctx.state_database.session() as session:
             return list(await session.scalars(query))
