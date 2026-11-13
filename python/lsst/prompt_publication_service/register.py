@@ -27,13 +27,14 @@ from collections.abc import Iterable
 from uuid import UUID
 
 import pydantic
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from lsst.daf.butler import Butler, DataCoordinate, DatasetRef, DimensionRecord, Timespan
 from lsst.resources import ResourcePath
 
 from .database import Database
 from .logging import get_global_logger
-from .schema import Dataset, DatasetLocationStatus, UnknownDataset, Visit
+from .schema import Dataset, DatasetLocationStatus, DayObs, UnknownDataset, Visit
 
 _LOG = get_global_logger()
 
@@ -118,8 +119,10 @@ async def register_embargo_datasets(
     visit_rows = [
         _convert_visit_record_to_visit_row(record) for record in visit_mapper.get_all_visit_records()
     ]
+    day_obs_values = {visit["day_obs"] for visit in visit_rows}
     dataset_rows = [_convert_ref_to_dataset_row(ref, visit_mapper) for ref in datasets]
     async with db.session() as session:
+        await add_dayobs_rows(db, session, day_obs_values)
         if visit_rows:
             await session.execute(db.insert_if_not_exists(Visit), visit_rows)
         if missing:
@@ -128,6 +131,17 @@ async def register_embargo_datasets(
         if dataset_rows:
             await session.execute(db.insert_if_not_exists(Dataset), dataset_rows)
         await session.commit()
+
+
+async def add_dayobs_rows(db: Database, session: AsyncSession, day_obs_values: Iterable[int]) -> None:
+    """Add rows to the DayObs table for the given day_obs IDs. All other
+    columns will have their default value.  If a row already exists for a
+    given day_obs, it will be skipped.
+    """
+    day_obs_values = list(day_obs_values)
+    if len(day_obs_values) > 0:
+        day_obs_rows = [{"id": value} for value in day_obs_values]
+        await session.execute(db.insert_if_not_exists(DayObs), day_obs_rows)
 
 
 def _convert_butler_timespan_to_datetime(timespan: Timespan | None) -> datetime.datetime | None:
