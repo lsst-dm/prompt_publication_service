@@ -114,6 +114,8 @@ VISIT2 = TestVisitOrExposure(2025120200440, datetime.datetime(2025, 12, 3, 8, 0,
 # exists.
 EXPOSURE1 = VISIT1
 EXPOSURE2 = VISIT2
+# The day obs value shared by all the visits and exposures above.
+DAY_OBS = 20251202
 
 
 def register_test_dataset_types(butler: Butler) -> None:

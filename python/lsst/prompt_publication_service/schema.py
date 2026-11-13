@@ -318,6 +318,19 @@ class Dataset(Base):
         return _butler_repository_to_status_column[repository]
 
 
+class PublishableDataset(Base):
+    """Table tracking which datasets are candidates for publication for each
+    day_obs.
+    """
+
+    __tablename__ = "publishable_dataset"
+
+    day_obs: Mapped[int] = mapped_column(types.BigInteger, ForeignKey("day_obs.id"), primary_key=True)
+    """Observation date as the day_obs dimension value from the Butler."""
+    dataset_id: Mapped[UUID] = mapped_column(ForeignKey("dataset.id"), primary_key=True)
+    """Butler Dataset UUID."""
+
+
 class UnknownDataset(Base):
     """Table storing a list of datasets that we were instructed to register in
     the database, but which were not available in the original repository when

@@ -3,7 +3,7 @@ import unittest
 import sqlalchemy
 
 from lsst.daf.butler import Butler, CollectionType, DatasetRef
-from lsst.prompt_publication_service.register import register_embargo_datasets
+from lsst.prompt_publication_service.register_daytime_ap import register_daytime_ap_output
 from lsst.prompt_publication_service.schema import (
     Dataset,
     DatasetLocationStatus,
@@ -15,6 +15,7 @@ from lsst.prompt_publication_service.tasks.publish_to_google import (
     publish_to_google_task,
 )
 from lsst.prompt_publication_service.test_utils import (
+    DAY_OBS,
     UNPUBLISHED_VISIT_DATASET_TYPE,
     VISIT1,
     VISIT2,
@@ -35,7 +36,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         self.ctx: TaskContext = await self.enterAsyncContext(setup_task_context_with_empty_repos())
         self.prompt_prep_butler: Butler = self.enterContext(
             self.ctx.butler_factory.create_butler("prompt_prep")
-        ).clone(run="run")
+        )
         load_base_dimension_data(self.prompt_prep_butler)
         load_visit_dimension_data(self.prompt_prep_butler)
         register_test_dataset_types(self.prompt_prep_butler)
@@ -44,14 +45,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         )
         load_base_dimension_data(self.google_butler)
         self.google_butler.collections.register(OUTPUT_TAGGED_COLLECTION, CollectionType.TAGGED)
-
-    async def _set_up_dataset(self, dataset_type: str, data_id: dict[str, str | int]) -> DatasetRef:
-        """Create a dataset in the prompt_prep repo and register it in the
-        state database.
-        """
-        ref = self.prompt_prep_butler.put(_BUTLER_PUT_PAYLOAD, dataset_type, dataId=data_id)
-        await register_embargo_datasets(self.ctx.state_database, self.prompt_prep_butler, [ref])
-        return ref
+        self._dataset_setup = _DatasetSetup(self.ctx, self.prompt_prep_butler)
 
     async def _mark_dataset_present_in_prompt_prep(self, ref: DatasetRef) -> None:
         async with self.ctx.state_database.session() as session:
@@ -69,23 +63,24 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         available and that each visit is published separately.
         """
         # Two datasets that will be published together for a single visit.
-        visit1_10 = await self._set_up_dataset(
+        visit1_10 = self._dataset_setup.add_dataset(
             VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT1.id, "detector": 10}
         )
-        visit1_11 = await self._set_up_dataset(
+        visit1_11 = self._dataset_setup.add_dataset(
             VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT1.id, "detector": 11}
         )
         # Another two datasets from the same visit that won't be published.
-        visit1_10_unpublished = await self._set_up_dataset(
+        visit1_10_unpublished = self._dataset_setup.add_dataset(
             UNPUBLISHED_VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT1.id, "detector": 10}
         )
-        visit1_11_unpublished = await self._set_up_dataset(
+        visit1_11_unpublished = self._dataset_setup.add_dataset(
             UNPUBLISHED_VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT1.id, "detector": 11}
         )
         # Dataset from a different visit.
-        await self._set_up_dataset(
+        self._dataset_setup.add_dataset(
             VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT2.id, "detector": 11}
         )
+        await self._dataset_setup.register_datasets(DAY_OBS)
 
         # Visit requires all known publishable datasets to be present before
         # publication proceeds.
@@ -122,6 +117,9 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             DatasetLocationStatus.NEVER_PRESENT,
         )
         self.assertEqual(self.google_butler.get(visit1_10), _BUTLER_PUT_PAYLOAD)
+        # The Google repositories share file storage with prompt_prep, so
+        # these paths should be identical.
+        self.assertEqual(self.prompt_prep_butler.getURI(visit1_10), self.google_butler.getURI(visit1_10))
         self.assertIsNotNone(self.google_butler.get_dataset(visit1_11.id))
         self.assertIsNone(self.google_butler.get_dataset(visit1_10_unpublished.id))
         self.assertIsNone(self.google_butler.get_dataset(visit1_11_unpublished.id))
@@ -142,9 +140,10 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         """
         # Set up a single visit dataset, then delete it from the prompt prep
         # repo.
-        ref = await self._set_up_dataset(
+        ref = self._dataset_setup.add_dataset(
             VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT1.id, "detector": 10}
         )
+        await self._dataset_setup.register_datasets(DAY_OBS)
         await self._mark_dataset_present_in_prompt_prep(ref)
         self.prompt_prep_butler.pruneDatasets([ref], unstore=True, purge=True)
 
@@ -169,9 +168,10 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         """Verify that publication is considered successful even if a previous
         attempt updated the target Butler but failed before updating the state
         database."""
-        ref = await self._set_up_dataset(
+        ref = self._dataset_setup.add_dataset(
             VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT1.id, "detector": 10}
         )
+        await self._dataset_setup.register_datasets(DAY_OBS)
         await self._mark_dataset_present_in_prompt_prep(ref)
         self.google_butler.transfer_from(
             self.prompt_prep_butler,
@@ -189,4 +189,24 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             (await get_dataset_state(self.ctx, ref.id)).google_int_status, DatasetLocationStatus.PRESENT
+        )
+
+
+class _DatasetSetup:
+    _RUN_NAME = "run"
+
+    def __init__(self, ctx: TaskContext, butler: Butler) -> None:
+        self._ctx = ctx
+        self._butler = butler
+        self._datasets: list[DatasetRef] = []
+        self._butler.collections.register(self._RUN_NAME)
+
+    def add_dataset(self, dataset_type: str, data_id: dict[str, str | int]) -> DatasetRef:
+        ref = self._butler.put(_BUTLER_PUT_PAYLOAD, dataset_type, dataId=data_id, run=self._RUN_NAME)
+        self._datasets.append(ref)
+        return ref
+
+    async def register_datasets(self, day_obs: int) -> None:
+        await register_daytime_ap_output(
+            self._ctx.state_database, self._butler, self._ctx.dataset_config, day_obs, self._RUN_NAME
         )

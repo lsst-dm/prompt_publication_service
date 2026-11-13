@@ -23,7 +23,7 @@ import unittest
 from datetime import timedelta
 from uuid import UUID
 
-from lsst.daf.butler import Butler, CollectionType
+from lsst.daf.butler import Butler
 from lsst.prompt_publication_service.date_time_source import DateTimeSource
 from lsst.prompt_publication_service.register import register_embargo_datasets
 from lsst.prompt_publication_service.schema import (
@@ -31,10 +31,6 @@ from lsst.prompt_publication_service.schema import (
     DatasetLocationStatus,
 )
 from lsst.prompt_publication_service.tasks.dimension_record_copy import DimensionRecordCopyTask
-from lsst.prompt_publication_service.tasks.publish_to_google import (
-    OUTPUT_TAGGED_COLLECTION,
-    publish_to_google_task,
-)
 from lsst.prompt_publication_service.tasks.repo_main import repo_main_transfer_task
 from lsst.prompt_publication_service.tasks.unembargo import unembargo_transfer_task
 from lsst.prompt_publication_service.test_utils import (
@@ -68,9 +64,6 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         load_base_dimension_data(self.prompt_prep_butler)
         self.main_butler = self.enterContext(self.butler_factory.create_butler("/repo/main"))
         load_base_dimension_data(self.main_butler)
-        self.prompt_google_butler = self.enterContext(self.butler_factory.create_butler("prompt_google_int"))
-        load_base_dimension_data(self.prompt_google_butler)
-        self.prompt_google_butler.collections.register(OUTPUT_TAGGED_COLLECTION, CollectionType.TAGGED)
 
     async def test_unembargo(self) -> None:
         """Test the basic functionality of the unembargo process."""
@@ -178,9 +171,6 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             # copying to /repo/main.
             self.assertEqual(state.unembargo_time, time1)
             self.assertEqual(state.prompt_prep_status, DatasetLocationStatus.PRESENT)
-            # Google publication waits until all datasets from the visit
-            # are unembargoed.
-            self.assertEqual((await publish_to_google_task.run(self.context)).data, [])
 
         with DateTimeSource.mock_current_time(between_visit_time, 3) as time:
             # Still in the embargo period.  We already unembargoed the
@@ -193,15 +183,10 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
                 (await repo_main_transfer_task.run(self.context)).data,
                 [],
             )
-            self.assertEqual((await publish_to_google_task.run(self.context)).data, [])
 
         with DateTimeSource.mock_current_time(between_visit_time, 80) as time:
             # Embargo period is finished for the first visit, but not the
             # second.
-
-            # Datasets are not transferred to Google until after they are
-            # copied to prompt_prep.
-            self.assertEqual((await publish_to_google_task.run(self.context)).data, [])
 
             # Pixel datasets should now be transferred from embargo to
             # prompt_prep.
@@ -230,20 +215,6 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
             pvi2_state = await self._get_dataset_state(pvi2.id)
             self.assertIsNone(pvi2_state.unembargo_time)
             self.assertEqual(pvi2_state.prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
-
-            # We now publish only the dataset that has been configured as
-            # publishable.
-            self.assertEqual((await publish_to_google_task.run(self.context)).data, [VISIT1.id])
-            self.assertIsNone(self.prompt_google_butler.get_dataset(unpublished_visit.id))
-            self.assertEqual(self.prompt_prep_butler.get(pvi1), 1)
-            # The Google repositories share file storage with prompt_prep, so
-            # these paths should be identical.
-            self.assertEqual(self.prompt_prep_butler.getURI(pvi1), self.prompt_google_butler.getURI(pvi1))
-            # Make sure that the dataset was added to the tagged collection.
-            self.assertEqual(
-                [pvi1],
-                self.prompt_google_butler.query_datasets(VISIT_DATASET_TYPE, OUTPUT_TAGGED_COLLECTION),
-            )
 
     async def test_unembargo_missing_datasets(self) -> None:
         """Test the behavior of unembargo when datasets are missing."""
@@ -345,23 +316,6 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         state = await self._get_dataset_state(ref.id)
         self.assertEqual(self.main_butler.get(ref), 1)
         self.assertEqual(state.repo_main_status, DatasetLocationStatus.PRESENT)
-
-        # And the transfer to Google, which doesn't copy files but does
-        # copy database entries.
-        self.prompt_google_butler.transfer_from(
-            self.prompt_prep_butler,
-            [ref],
-            transfer="unsafe_direct",
-            register_dataset_types=True,
-            transfer_dimensions=True,
-        )
-        self.assertEqual(
-            (await publish_to_google_task.run(self.context)).data,
-            [VISIT2.id],
-        )
-        self.assertEqual(self.prompt_google_butler.get(ref), 1)
-        state = await self._get_dataset_state(ref.id)
-        self.assertEqual(state.google_int_status, DatasetLocationStatus.PRESENT)
 
     async def _get_dataset_state(self, dataset_id: UUID) -> Dataset:
         return await get_dataset_state(self.context, dataset_id)
