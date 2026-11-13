@@ -190,7 +190,7 @@ class Visit(Base):
     """Dimension primary key from the Butler (visit or exposure)."""
     instrument: Mapped[str] = mapped_column(primary_key=True)
     """Instrument name from the Butler."""
-    day_obs: Mapped[int] = mapped_column(types.BigInteger, ForeignKey("day_obs.id"))
+    day_obs: Mapped[int] = mapped_column(types.BigInteger, ForeignKey("day_obs.id"), index=True)
     """Observation date as stored in the Butler.  Note that this is the local
     date at the beginning of the observing night, and not necessarily the same
     calendar date as the exposure time below.
