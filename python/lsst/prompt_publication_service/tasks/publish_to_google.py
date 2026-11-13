@@ -76,45 +76,45 @@ class PublishTask(Task):
 
     async def _find_visits_to_publish(self, ctx: TaskContext) -> list[Visit]:
         """Finds the visits are ready to be published to Google."""
-        async with self._concurrency_semaphore:
-            published_dataset_types = ctx.dataset_config.filter(
-                lambda item: item.publish_to_public
-            ).dataset_types()
+        published_dataset_types = ctx.dataset_config.filter(
+            lambda item: item.publish_to_public
+        ).dataset_types()
 
-            query = (
-                select(Visit)
-                .where(
-                    # Find visits that haven't been published yet...
-                    Visit.get_publication_status_column(self._target_repository)
-                    == VisitPublicationStatus.NEVER_PRESENT,
-                    # ... where all publishable datasets have been successfully
-                    # unembargoed.
-                    ~(
-                        select(Dataset.prompt_prep_status)
-                        .where(
-                            Dataset.prompt_prep_status != DatasetLocationStatus.PRESENT,
-                            Dataset.instrument == Visit.instrument,
-                            Dataset.visit == Visit.id,
-                            Dataset.dataset_type.in_(published_dataset_types),
-                        )
-                        .exists()
-                    ),
-                )
-                .limit(self._MAX_VISITS_PER_QUERY)
+        query = (
+            select(Visit)
+            .where(
+                # Find visits that haven't been published yet...
+                Visit.get_publication_status_column(self._target_repository)
+                == VisitPublicationStatus.NEVER_PRESENT,
+                # ... where all publishable datasets have been successfully
+                # unembargoed.
+                ~(
+                    select(Dataset.prompt_prep_status)
+                    .where(
+                        Dataset.prompt_prep_status != DatasetLocationStatus.PRESENT,
+                        Dataset.instrument == Visit.instrument,
+                        Dataset.visit == Visit.id,
+                        Dataset.dataset_type.in_(published_dataset_types),
+                    )
+                    .exists()
+                ),
             )
-            async with ctx.state_database.session() as session:
-                visits = list(await session.scalars(query))
-                session.expunge_all()
-                return visits
+            .limit(self._MAX_VISITS_PER_QUERY)
+        )
+        async with ctx.state_database.session() as session:
+            visits = list(await session.scalars(query))
+            session.expunge_all()
+            return visits
 
     async def _publish_visit(self, ctx: TaskContext, visit: Visit) -> None:
-        datasets = await self._find_datasets_to_publish(ctx, visit)
-        result = await asyncio.to_thread(self._publish_visit_sync, ctx, visit, datasets)
-        async with ctx.state_database.session() as session:
-            session.add(visit)
-            visit.set_publication_status_column(self._target_repository, result.status)
-            await result.datasets.persist_transfer_result(session)
-            await session.commit()
+        async with self._concurrency_semaphore:
+            datasets = await self._find_datasets_to_publish(ctx, visit)
+            result = await asyncio.to_thread(self._publish_visit_sync, ctx, visit, datasets)
+            async with ctx.state_database.session() as session:
+                session.add(visit)
+                visit.set_publication_status_column(self._target_repository, result.status)
+                await result.datasets.persist_transfer_result(session)
+                await session.commit()
 
     @backoff.on_exception(backoff.expo, OperationalError, max_tries=5, max_time=60)
     def _publish_visit_sync(
