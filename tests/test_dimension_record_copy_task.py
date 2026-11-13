@@ -34,9 +34,7 @@ from lsst.prompt_publication_service.test_utils import (
 
 class TestDimensionRecordCopy(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
-        self.context = await self.enterAsyncContext(
-            setup_task_context_with_empty_repos(["embargo", "prompt_prep", "/repo/main"])
-        )
+        self.context = await self.enterAsyncContext(setup_task_context_with_empty_repos())
         self.butler_factory = self.context.butler_factory
         self.state_db = self.context.state_database
         load_base_dimension_data(self.butler_factory.create_butler("embargo"))
