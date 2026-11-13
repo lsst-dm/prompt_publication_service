@@ -22,10 +22,9 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Callable, Literal
-
-from .schema import DatasetOrigin
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -47,57 +46,31 @@ class DatasetTypeConfigurationItem:
 @dataclass(frozen=True)
 class ConfigurationGroup[_T]:
     key: _T
-    origin: DatasetOrigin
     dataset_types: list[str]
 
 
 class DatasetTypeConfiguration:
-    def __init__(self, config: dict[DatasetOrigin, dict[str, DatasetTypeConfigurationItem]]):
-        self._config = {k: dict(v) for k, v in config.items()}
+    def __init__(self, config: Mapping[str, DatasetTypeConfigurationItem]):
+        self._config = dict(config)
 
     def subset(self, dataset_types: list[str]) -> DatasetTypeConfiguration:
-        return DatasetTypeConfiguration(
-            {origin: {dt: self._config[origin][dt] for dt in dataset_types} for origin in self._config.keys()}
-        )
+        return DatasetTypeConfiguration({dt: self._config[dt] for dt in dataset_types})
 
     def filter(self, filter_func: Callable[[DatasetTypeConfigurationItem], bool]) -> DatasetTypeConfiguration:
-        output: dict[DatasetOrigin, dict[str, DatasetTypeConfigurationItem]] = defaultdict(dict)
-
-        for origin, origin_config in self._config.items():
-            for dataset_type, config in origin_config.items():
-                if filter_func(config):
-                    output[origin][dataset_type] = config
-
-        return DatasetTypeConfiguration(output)
+        return DatasetTypeConfiguration(
+            {dataset_type: config for dataset_type, config in self._config.items() if filter_func(config)}
+        )
 
     def group_by[_T](
         self, key_func: Callable[[DatasetTypeConfigurationItem], _T]
     ) -> list[ConfigurationGroup[_T]]:
-        # Computed key -> origin -> set of dataset types.
-        groups: defaultdict[_T, defaultdict[DatasetOrigin, set[str]]] = defaultdict(lambda: defaultdict(set))
-        for origin, origin_config in self._config.items():
-            for dataset_type, config in origin_config.items():
-                key = key_func(config)
-                groups[key][origin].add(dataset_type)
+        # Computed key -> set of dataset types.
+        groups: defaultdict[_T, set[str]] = defaultdict(set)
+        for dataset_type, config in self._config.items():
+            key = key_func(config)
+            groups[key].add(dataset_type)
 
-        output = []
-        for key, origin_dict in groups.items():
-            for origin, dataset_types in origin_dict.items():
-                output.append(ConfigurationGroup(key, origin, sorted(dataset_types)))
-
-        return output
-
-    def group_by_origin(self) -> list[ConfigurationGroup[None]]:
-        groups = []
-
-        for origin, origin_config in self._config.items():
-            dataset_types = list(origin_config.keys())
-            groups.append(ConfigurationGroup(None, origin, dataset_types))
-
-        return groups
+        return [ConfigurationGroup(key, sorted(dataset_types)) for key, dataset_types in groups.items()]
 
     def dataset_types(self) -> set[str]:
-        dataset_types: set[str] = set()
-        for group in self.group_by_origin():
-            dataset_types.update(group.dataset_types)
-        return dataset_types
+        return set(self._config.keys())

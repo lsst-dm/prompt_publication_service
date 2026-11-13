@@ -7,7 +7,6 @@ from lsst.prompt_publication_service.register import register_embargo_datasets
 from lsst.prompt_publication_service.schema import (
     Dataset,
     DatasetLocationStatus,
-    DatasetOrigin,
     VisitPublicationStatus,
 )
 from lsst.prompt_publication_service.tasks.base import TaskContext
@@ -51,9 +50,7 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         state database.
         """
         ref = self.prompt_prep_butler.put(_BUTLER_PUT_PAYLOAD, dataset_type, dataId=data_id)
-        await register_embargo_datasets(
-            self.ctx.state_database, DatasetOrigin.PROMPT_PROCESSING, self.prompt_prep_butler, [ref]
-        )
+        await register_embargo_datasets(self.ctx.state_database, self.prompt_prep_butler, [ref])
         return ref
 
     async def _mark_dataset_present_in_prompt_prep(self, ref: DatasetRef) -> None:

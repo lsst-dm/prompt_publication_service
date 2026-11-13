@@ -28,7 +28,6 @@ from lsst.daf.butler import Butler, DatasetRef
 
 from ..database import Database
 from ..register import register_embargo_datasets
-from ..schema import DatasetOrigin
 from ._utils import split_dataset_types_argument
 
 
@@ -59,7 +58,7 @@ def register_embargo_datasets_from_collections(
 
 async def _register_datasets(butler: Butler, database_uri: str, datasets: list[DatasetRef]) -> None:
     async with Database(database_uri) as db:
-        await register_embargo_datasets(db, DatasetOrigin.PROMPT_PROCESSING, butler, datasets)
+        await register_embargo_datasets(db, butler, datasets)
 
 
 if __name__ == "__main__":
