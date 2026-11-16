@@ -163,7 +163,8 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
         "mpSkyEphemerisQuery_config": _PROVENANCE,
         "mpSkyEphemerisQuery_log": _PROVENANCE,
         "mpSkyEphemerisQuery_metadata": _PROVENANCE,
-        "packages": _PROVENANCE,
+        # TODO DM-57122: allow publication of per-day datasets.
+        # "packages": _PROVENANCE,
         "prompt_provenance": _PROVENANCE_INTERNAL,
         "standardizeDiaSource_config": _PROVENANCE,
         "standardizeDiaSource_log": _PROVENANCE,
