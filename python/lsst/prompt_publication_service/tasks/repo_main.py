@@ -25,7 +25,6 @@ from uuid import UUID
 
 from ..config import DatasetTypeConfiguration
 from ..database import Database
-from .impl.transfer_exec import TransferInWorkerPool
 from .impl.transfer_task import (
     MAX_DATASETS_PER_QUERY,
     TransferConfig,
@@ -47,7 +46,7 @@ repo_main_transfer_task = TransferTask(
         source_repository="prompt_prep",
         target_repository="/repo/main",
         dataset_lookup_function=_find_datasets_to_copy_to_repo_main,
-        dataset_transfer_function=TransferInWorkerPool("unsafe_direct").transfer,
+        transfer_mode="unsafe_direct",
         batch_size=20000,
         max_concurrency=2,
         target_time_column=None,

@@ -22,18 +22,17 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from itertools import batched
-from typing import Awaitable, Callable
 from uuid import UUID
 
-from sqlalchemy import Select, select, update
+from sqlalchemy import Select, select
 
 from lsst.daf.butler import DatasetId
 
 from ...config import DatasetTypeConfiguration
 from ...database import Database
-from ...date_time_source import DateTimeSource
 from ...logging import get_global_logger
 from ...schema import (
     ButlerRepository,
@@ -43,16 +42,10 @@ from ...schema import (
     Visit,
 )
 from ..base import Task, TaskContext, TaskRunResult
+from .dataset_transfer_tracker import DatasetTransferTracker
+from .process_pool import WorkerTaskContext
 
 _LOG = get_global_logger()
-
-
-@dataclass(frozen=True)
-class DatasetTransferResult:
-    missing_datasets: list[UUID]
-    """Datasets that were not found in the source repository."""
-    transferred_datasets: list[UUID]
-    """Datasets that were successfully transferred to the target repository."""
 
 
 @dataclass(frozen=True)
@@ -67,10 +60,10 @@ class TransferConfig:
     """Function that will be called to find the UUIDs of the datasets that
     will be transferred.
     """
-    dataset_transfer_function: Callable[
-        [TaskContext, TransferConfig, tuple[DatasetId, ...]], Awaitable[DatasetTransferResult]
-    ]
-    """Function called to execute the actual transfer of datasets."""
+    transfer_mode: str
+    """Butler transfer mode used for transferring datasets.  See
+    `lsst.daf.Butler.transfer_from`.
+    """
     batch_size: int
     """Maximum number of datasets to transfer in a single batch."""
     max_concurrency: int
@@ -112,56 +105,78 @@ class TransferTask(Task):
             successful_datasets.extend(task.result())
         return TaskRunResult("success", data=successful_datasets)
 
-    async def _process_batch(self, ctx: TaskContext, batch: tuple[DatasetId, ...]) -> list[DatasetId]:
+    async def _process_batch(self, ctx: TaskContext, batch: tuple[DatasetId, ...]) -> set[DatasetId]:
         async with self._concurrency_semaphore:
             self._log.info("starting butler transfer", count=len(batch))
-            result = await self._config.dataset_transfer_function(ctx, self._config, batch)
+
+            result = await ctx.worker_pool.run(
+                _transfer_datasets,
+                source_repository=self._config.source_repository,
+                target_repository=self._config.target_repository,
+                transfer_mode=self._config.transfer_mode,
+                dataset_ids=batch,
+            )
+
+            completed_ids = result.get_complete_datasets()
             self._log.info(
                 "completed butler transfer",
-                transferred=len(result.transferred_datasets),
-                missing=len(result.missing_datasets),
+                transferred=len(completed_ids),
+                missing=len(result.get_missing_datasets()),
             )
-            await self._record_transfer_result(ctx.state_database, result)
+
+            async with ctx.state_database.session() as session:
+                await result.persist_transfer_result(session, self._config.target_time_column)
+                await session.commit()
             self._log.info("completed state DB update")
-            return result.transferred_datasets
 
-    async def _record_transfer_result(
-        self,
-        db: Database,
-        transfer_result: DatasetTransferResult,
-    ) -> None:
-        transfer_time = DateTimeSource.now()
-        source_status_column = Dataset.get_status_column_name(self._config.source_repository)
-        target_status_column = Dataset.get_status_column_name(self._config.target_repository)
+            return completed_ids
 
-        async with db.session() as session:
-            await session.execute(
-                update(Dataset),
-                [
-                    {
-                        "id": id,
-                        source_status_column: DatasetLocationStatus.MISSING,
-                    }
-                    for id in transfer_result.missing_datasets
-                ],
+
+def _transfer_datasets(
+    context: WorkerTaskContext,
+    source_repository: ButlerRepository,
+    target_repository: ButlerRepository,
+    transfer_mode: str,
+    dataset_ids: Iterable[UUID],
+) -> DatasetTransferTracker:
+    """Transfer the given datasets from one Butler repository to another.  This
+    function will be run in another process, via ProcessPoolExecutor.
+    """
+    log = context.log.bind(
+        task="dataset transfer",
+        source_repository=source_repository,
+        target_repository=target_repository,
+    )
+    with (
+        context.butler_factory.create_butler(source_repository) as source_butler,
+        context.butler_factory.create_butler(target_repository) as target_butler,
+    ):
+        transfer_tracker = DatasetTransferTracker(
+            source_repository=source_repository, target_repository=target_repository
+        )
+        found_refs = transfer_tracker.find_datasets(source_butler, dataset_ids)
+        missing_ids = transfer_tracker.get_missing_datasets()
+        if missing_ids:
+            log.warning("Datasets were not found in Butler registry", missing_ids=missing_ids)
+
+        completed_refs = target_butler.transfer_from(
+            source_butler, found_refs, transfer_mode, register_dataset_types=True
+        )
+        transfer_tracker.mark_refs_completed(completed_refs)
+
+        # If datasets passed into `transfer_from` were not returned from its
+        # result set, that means the datasets were known to the Butler
+        # "registry", but there are no corresponding file records in the Butler
+        # "datastore".
+        missing_datastore_entries = transfer_tracker.get_incomplete_datasets()
+        if missing_datastore_entries:
+            transfer_tracker.mark_incomplete_as_missing()
+            log.warning(
+                "Datasets were not found in Butler datastore",
+                missing_datastore_entries=missing_datastore_entries,
             )
 
-            if self._config.target_time_column is None:
-                time_update = {}
-            else:
-                time_update = {self._config.target_time_column: transfer_time}
-            await session.execute(
-                update(Dataset),
-                [
-                    {
-                        "id": id,
-                        target_status_column: DatasetLocationStatus.PRESENT,
-                        **time_update,
-                    }
-                    for id in transfer_result.transferred_datasets
-                ],
-            )
-            await session.commit()
+        return transfer_tracker
 
 
 MAX_DATASETS_PER_QUERY = 1_000_000
