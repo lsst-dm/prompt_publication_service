@@ -14,7 +14,9 @@ from ..register_daytime_ap import register_daytime_ap_output
 @click.argument("database_uri")
 @click.argument("day_obs", type=int)
 @click.argument("collection")
-def register_daytime_ap_outputs(butler_repo: str, database_uri: str, day_obs: int, collection: str) -> None:
+def register_daytime_ap_output_cli(
+    butler_repo: str, database_uri: str, day_obs: int, collection: str
+) -> None:
     """Register daytime AP outputs from the given collection for the given
     dayobs.  This resets the list of datasets for publication on that
     dayobs to the "find-first" datasets in the given collection.
@@ -29,4 +31,4 @@ async def _register(butler: Butler, database_uri: str, day_obs: int, collection:
 
 
 if __name__ == "__main__":
-    register_daytime_ap_outputs()
+    register_daytime_ap_output_cli()
