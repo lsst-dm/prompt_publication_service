@@ -17,6 +17,33 @@ _LOG = get_global_logger()
 async def register_daytime_ap_output(
     db: Database, source_butler: Butler, config: DatasetTypeConfiguration, day_obs: int, collection: str
 ) -> None:
+    """Register a daytime AP collection chain into the state database.  All
+    datasets of types tracked by this service will be registered as candidates
+    for unembargo, and the "find-first" datasets will be registered as candidates
+    for publication.
+
+    If this is called a second time the same day_obs, the list of candidates
+    for publication will be overwritten by the collection chain from the second
+    call.  Additional candidates for unembargo will be appended without
+    overwriting.
+
+    Parameters
+    ----------
+    db
+        Connection to prompt publication state database.
+    source_butler
+        Butler instance that will be used to query for datasets (usually from
+        the embargo repo.)
+    config
+        Configuration defining which dataset types will be tracked in the state
+        database.
+    day_obs
+        Observation date as a Butler day_obs value.
+    collection
+        Collection that will be queried to find datasets to be registered in
+        state database.
+    """
+
     _LOG.bind(task="register daytime ap", day_obs=day_obs, collection=collection)
     _LOG.info("starting dataset lookup")
     # First find all the datasets of the types we manage in the given
