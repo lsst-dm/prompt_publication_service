@@ -27,23 +27,30 @@ from uuid import UUID
 from sqlalchemy import select
 from structlog.testing import capture_logs
 
-from lsst.daf.butler import Butler
+from lsst.daf.butler import Butler, CollectionType
+from lsst.prompt_publication_service.configs.prompt_processing_outputs import (
+    PROMPT_PROCESSING_OUTPUT_CONFIG,
+)
 from lsst.prompt_publication_service.register import register_dataset_batch_file
+from lsst.prompt_publication_service.register_daytime_ap import register_daytime_ap_output
 from lsst.prompt_publication_service.schema import (
     Dataset,
     DatasetLocationStatus,
     DayObs,
     DaytimeApStatus,
     DimensionRecordStatus,
+    PublishableDataset,
     UnknownDataset,
     Visit,
     VisitPublicationStatus,
 )
 from lsst.prompt_publication_service.test_utils import (
+    DAY_OBS,
     EXPOSURE1,
     EXPOSURE2,
     EXPOSURE_DATASET_TYPE,
     NONVISIT_DATASET_TYPE,
+    UNPUBLISHED_VISIT_DATASET_TYPE,
     VISIT1,
     VISIT2,
     VISIT_DATASET_TYPE,
@@ -58,7 +65,7 @@ from lsst.prompt_publication_service.test_utils import (
 class TestRegistration(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         repo = self.enterContext(create_empty_butler_repo())
-        self.butler = self.enterContext(Butler.from_config(repo, run="run"))
+        self.butler: Butler = self.enterContext(Butler.from_config(repo, run="run"))
         load_base_dimension_data(self.butler)
         load_visit_dimension_data(self.butler)
         register_test_dataset_types(self.butler)
@@ -240,3 +247,102 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             day_obs = await session.scalar(select(DayObs).where(DayObs.id == 20251202))
             assert day_obs is not None
             self.assertEqual(day_obs.daytime_ap_status, DaytimeApStatus.COMPLETED)
+
+    async def test_register_daytime_ap_outputs(self) -> None:
+        self.butler.collections.register("run1")
+        self.butler.collections.register("run2")
+        pvi1 = self.butler.put(
+            10, VISIT_DATASET_TYPE, instrument="LSSTCam", visit=VISIT1.id, detector=10, run="run1"
+        )
+        pvi2 = self.butler.put(
+            11, VISIT_DATASET_TYPE, instrument="LSSTCam", visit=VISIT2.id, detector=11, run="run1"
+        )
+        unpublished = self.butler.put(
+            10, UNPUBLISHED_VISIT_DATASET_TYPE, instrument="LSSTCam", visit=VISIT1.id, detector=10, run="run1"
+        )
+        shadowed_pvi1 = self.butler.put(
+            10, VISIT_DATASET_TYPE, instrument="LSSTCam", visit=VISIT1.id, detector=10, run="run2"
+        )
+
+        chained_collection = "daytimeAP"
+        self.butler.collections.register(chained_collection, CollectionType.CHAINED)
+        self.butler.collections.redefine_chain(chained_collection, ["run1", "run2"])
+
+        await register_daytime_ap_output(
+            self.db,
+            self.butler,
+            PROMPT_PROCESSING_OUTPUT_CONFIG,
+            DAY_OBS,
+            chained_collection,
+        )
+
+        # Verify day obs row was inserted.
+        async with self.db.session() as session:
+            day_obs = list(await session.scalars(select(DayObs)))
+        self.assertEqual(len(day_obs), 1)
+        self.assertEqual(day_obs[0].id, DAY_OBS)
+        self.assertIs(day_obs[0].daytime_ap_status, DaytimeApStatus.COMPLETED)
+
+        # Verify dataset rows were inserted.
+        async with self.db.session() as session:
+            datasets = list(await session.scalars(select(Dataset)))
+        self.assertCountEqual(
+            [dataset.id for dataset in datasets],
+            [pvi1.id, pvi2.id, shadowed_pvi1.id, unpublished.id],
+        )
+        for dataset in datasets:
+            self.assertEqual(dataset.instrument, "LSSTCam")
+            self.assertIs(dataset.embargo_status, DatasetLocationStatus.PRESENT)
+            self.assertIs(dataset.prompt_prep_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(dataset.google_int_status, DatasetLocationStatus.NEVER_PRESENT)
+            self.assertIs(dataset.google_prod_status, DatasetLocationStatus.NEVER_PRESENT)
+        ds = {dataset.id: dataset for dataset in datasets}
+        self.assertEqual(ds[pvi1.id].visit, VISIT1.id)
+        self.assertEqual(ds[pvi1.id].butler_data_id, {"detector": 10})
+        self.assertEqual(ds[pvi1.id].dataset_type, VISIT_DATASET_TYPE)
+        self.assertEqual(ds[pvi2.id].visit, VISIT2.id)
+        self.assertEqual(ds[pvi2.id].butler_data_id, {"detector": 11})
+        self.assertEqual(ds[pvi2.id].dataset_type, VISIT_DATASET_TYPE)
+        self.assertEqual(ds[shadowed_pvi1.id].visit, VISIT1.id)
+        self.assertEqual(ds[shadowed_pvi1.id].butler_data_id, {"detector": 10})
+        self.assertEqual(ds[shadowed_pvi1.id].dataset_type, VISIT_DATASET_TYPE)
+        self.assertEqual(ds[unpublished.id].visit, VISIT1.id)
+        self.assertEqual(ds[unpublished.id].butler_data_id, {"detector": 10})
+        self.assertEqual(ds[unpublished.id].dataset_type, UNPUBLISHED_VISIT_DATASET_TYPE)
+
+        # Verify visit rows were inserted.
+        async with self.db.session() as session:
+            visits = list(await session.scalars(select(Visit)))
+        self.assertCountEqual([visit.id for visit in visits], [VISIT1.id, VISIT2.id])
+        for visit in visits:
+            self.assertEqual(visit.instrument, "LSSTCam")
+            self.assertEqual(visit.day_obs, DAY_OBS)
+            self.assertIs(visit.embargo_status, DimensionRecordStatus.INITIAL)
+        visits_by_id = {visit.id: visit for visit in visits}
+        self.assertEqual(visits_by_id[VISIT1.id].time, VISIT1.time)
+        self.assertEqual(visits_by_id[VISIT2.id].time, VISIT2.time)
+
+        # Verify that only the two "find-first" datasets from the front of the
+        # chain end up in the publishable_dataset table.
+        async with self.db.session() as session:
+            publishable = list(await session.scalars(select(PublishableDataset)))
+        self.assertCountEqual(
+            [row.dataset_id for row in publishable],
+            [pvi1.id, pvi2.id],
+        )
+        for row in publishable:
+            self.assertEqual(row.day_obs, DAY_OBS)
+
+        # Overwrite the list of datasets to be published by registering the
+        # same day_obs a second time with a different collection.
+        await register_daytime_ap_output(
+            self.db,
+            self.butler,
+            PROMPT_PROCESSING_OUTPUT_CONFIG,
+            DAY_OBS,
+            "run2",
+        )
+        async with self.db.session() as session:
+            revised_publishable = list(await session.scalars(select(PublishableDataset)))
+        self.assertEqual(len(revised_publishable), 1)
+        self.assertEqual(revised_publishable[0].dataset_id, shadowed_pvi1.id)
