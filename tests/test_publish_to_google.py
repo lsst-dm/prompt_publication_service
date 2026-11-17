@@ -3,6 +3,7 @@ import unittest
 import sqlalchemy
 
 from lsst.daf.butler import Butler, CollectionType, DatasetRef
+from lsst.prompt_publication_service.register import register_embargo_datasets
 from lsst.prompt_publication_service.register_daytime_ap import register_daytime_ap_output
 from lsst.prompt_publication_service.schema import (
     Dataset,
@@ -189,6 +190,31 @@ class TestDatasetTransfer(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             (await get_dataset_state(self.ctx, ref.id)).google_int_status, DatasetLocationStatus.PRESENT
+        )
+
+    async def test_publish_requires_daytime_completion(self) -> None:
+        """Verify that a visit will not be published unless daytime AP has
+        been completed for its corresponding day_obs.
+        """
+        ref = self._dataset_setup.add_dataset(
+            VISIT_DATASET_TYPE, {"instrument": "LSSTCam", "visit": VISIT1.id, "detector": 10}
+        )
+        # Register datasets for unembargo outside of the daytime AP
+        # registration process.
+        await register_embargo_datasets(self.ctx.state_database, self.prompt_prep_butler, [ref])
+        await self._mark_dataset_present_in_prompt_prep(ref)
+        self.assertEqual([], (await publish_to_google_task.run(self.ctx)).data)
+        self.assertEqual(
+            (await get_visit_state(self.ctx, VISIT1.id)).google_int_status,
+            VisitPublicationStatus.NEVER_PRESENT,
+        )
+
+        # Now mark the dayobs completed and publication should proceed.
+        await self._dataset_setup.register_datasets(DAY_OBS)
+        self.assertEqual([VISIT1.id], (await publish_to_google_task.run(self.ctx)).data)
+        self.assertEqual(
+            (await get_visit_state(self.ctx, VISIT1.id)).google_int_status,
+            VisitPublicationStatus.PUBLISHED,
         )
 
 
