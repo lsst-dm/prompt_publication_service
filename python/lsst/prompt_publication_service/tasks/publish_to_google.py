@@ -82,6 +82,7 @@ class PublishTask(Task):
         async with asyncio.TaskGroup() as tg:
             for visit in visits:
                 tg.create_task(self._publish_visit(ctx, visit))
+        self._log.info("completed publishing visits", count=len(visits))
         return TaskRunResult("success", data=visit_ids)
 
     async def _find_visits_to_publish(self, ctx: TaskContext) -> list[Visit]:
