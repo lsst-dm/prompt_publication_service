@@ -194,7 +194,7 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             async with self.db.session() as session:
                 dayobs_rows = list(await session.scalars(select(DayObs)))
             self.assertEqual(len(dayobs_rows), 1)
-            self.assertEqual(dayobs_rows[0].id, 20251202)
+            self.assertEqual(dayobs_rows[0].id, DAY_OBS)
             self.assertEqual(dayobs_rows[0].daytime_ap_status, DaytimeApStatus.INCOMPLETE)
 
         await register_datasets()
@@ -215,13 +215,13 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(visits[0].id, VISIT1.id)
         self.assertEqual(visits[0].instrument, "LSSTCam")
-        self.assertEqual(visits[0].day_obs, 20251202)
+        self.assertEqual(visits[0].day_obs, DAY_OBS)
         self.assertEqual(visits[0].time, VISIT1.time)
         _assert_initial_dimension_status_values(visits[0])
 
         self.assertEqual(visits[1].id, VISIT2.id)
         self.assertEqual(visits[1].instrument, "LSSTCam")
-        self.assertEqual(visits[0].day_obs, 20251202)
+        self.assertEqual(visits[0].day_obs, DAY_OBS)
         self.assertEqual(visits[1].time, VISIT2.time)
         _assert_initial_dimension_status_values(visits[1])
 
@@ -235,7 +235,7 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             assert dataset is not None
             dataset.prompt_prep_status = DatasetLocationStatus.PRESENT
 
-            day_obs = await session.scalar(select(DayObs).where(DayObs.id == 20251202))
+            day_obs = await session.scalar(select(DayObs).where(DayObs.id == DAY_OBS))
             assert day_obs is not None
             day_obs.daytime_ap_status = DaytimeApStatus.COMPLETED
             await session.commit()
@@ -244,7 +244,7 @@ class TestRegistration(unittest.IsolatedAsyncioTestCase):
             dataset = await session.scalar(select(Dataset).where(Dataset.id == pvi1.id))
             assert dataset is not None
             self.assertEqual(dataset.prompt_prep_status, DatasetLocationStatus.PRESENT)
-            day_obs = await session.scalar(select(DayObs).where(DayObs.id == 20251202))
+            day_obs = await session.scalar(select(DayObs).where(DayObs.id == DAY_OBS))
             assert day_obs is not None
             self.assertEqual(day_obs.daytime_ap_status, DaytimeApStatus.COMPLETED)
 
