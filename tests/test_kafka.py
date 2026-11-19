@@ -136,12 +136,6 @@ class TestKafkaIngest(unittest.IsolatedAsyncioTestCase):
             # Message should be ignored.
             await ingester.process_one()
 
-        with (
-            self.assertRaisesRegex(ValueError, "Unknown dataset origin"),
-            self._mock_kafka_message(kafka_message_dict | {"origin": "invalid"}),
-        ):
-            await ingester.process_one()
-
     @contextmanager
     def _mock_kafka_message(self, message_dict: dict) -> Generator[None]:
         """Mock the KafkaReader to return a specific message."""

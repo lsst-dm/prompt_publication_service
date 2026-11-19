@@ -31,7 +31,6 @@ from lsst.resources import ResourcePath
 
 from ..database import Database
 from ..register import register_dataset_batch_file
-from ..schema import DatasetOrigin
 from .kafka_reader import KafkaReader
 
 
@@ -44,8 +43,6 @@ class _BatchIngestedEvent(pydantic.BaseModel):
     type: Literal["batch-ingested"]
     batch_id: UUID
     """Identifier for this batch of datasets."""
-    origin: str
-    """The name of the service that these datasets originated from."""
     batch_file: str
     """Path to file containing JSON-serialized version of `DatasetBatch`
     model.
@@ -85,7 +82,6 @@ class Ingester:
                 batch_file = self._batch_file_directory.join(message.batch_file, forceDirectory=False)
                 await register_dataset_batch_file(
                     db=self._state_db,
-                    origin=_get_origin(message),
                     source_butler=self._butler,
                     batch_file=batch_file,
                 )
@@ -97,10 +93,3 @@ class Ingester:
                 # This branch is theoretically unreachable, since the Pydantic
                 # model should have rejected it.
                 raise ValueError(f"Unhandled Kafka message '{raw_message}'")
-
-
-def _get_origin(message: _BatchIngestedEvent) -> DatasetOrigin:
-    if message.origin == "prompt_processing":
-        return DatasetOrigin.PROMPT_PROCESSING
-
-    raise ValueError(f"Unknown dataset origin '{message.origin}' in batch file '{message.batch_file}'")

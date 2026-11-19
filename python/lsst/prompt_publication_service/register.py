@@ -33,7 +33,7 @@ from lsst.resources import ResourcePath
 
 from .database import Database
 from .logging import get_global_logger
-from .schema import Dataset, DatasetLocationStatus, DatasetOrigin, UnknownDataset, Visit
+from .schema import Dataset, DatasetLocationStatus, UnknownDataset, Visit
 
 _LOG = get_global_logger()
 
@@ -50,7 +50,7 @@ class DatasetBatch(pydantic.BaseModel):
 
 
 async def register_dataset_batch_file(
-    db: Database, origin: DatasetOrigin, source_butler: Butler, batch_file: ResourcePath | str
+    db: Database, source_butler: Butler, batch_file: ResourcePath | str
 ) -> None:
     """Add a list of datasets to the state database from a dataset batch file.
     This function is idempotent and can safely be called on the same batch file
@@ -61,9 +61,6 @@ async def register_dataset_batch_file(
     ----------
     db
         Database connection to the state database.
-    origin
-        Enum value describing which system/process these datasets originated
-        from.
     source_butler
         Butler instance for the repository the datasets are currently located
         (normally the 'embargo' repository.)
@@ -85,12 +82,11 @@ async def register_dataset_batch_file(
         error_message = f"Dataset not found in Butler, from batch '{batch.batch_id}'"
         missing = {id: error_message for id in missing_ids}
 
-    await register_embargo_datasets(db, origin, source_butler, refs, missing)
+    await register_embargo_datasets(db, source_butler, refs, missing)
 
 
 async def register_embargo_datasets(
     db: Database,
-    origin: DatasetOrigin,
     source_butler: Butler,
     datasets: list[DatasetRef],
     missing: dict[UUID, str] | None = None,
@@ -104,9 +100,6 @@ async def register_embargo_datasets(
     ----------
     db
         Database connection to the state database.
-    origin
-        Enum value describing which system/process these datasets originated
-        from.
     source_butler
         Butler instance for the repository the datasets are currently located
         (normally the 'embargo' repository.)
@@ -125,12 +118,12 @@ async def register_embargo_datasets(
     visit_rows = [
         _convert_visit_record_to_visit_row(record) for record in visit_mapper.get_all_visit_records()
     ]
-    dataset_rows = [_convert_ref_to_dataset_row(ref, origin, visit_mapper) for ref in datasets]
+    dataset_rows = [_convert_ref_to_dataset_row(ref, visit_mapper) for ref in datasets]
     async with db.session() as session:
         if visit_rows:
             await session.execute(db.insert_if_not_exists(Visit), visit_rows)
         if missing:
-            unknown_rows = [{"id": id, "origin": origin, "error": error} for id, error in missing.items()]
+            unknown_rows = [{"id": id, "error": error} for id, error in missing.items()]
             await session.execute(db.insert_if_not_exists(UnknownDataset), unknown_rows)
         if dataset_rows:
             await session.execute(db.insert_if_not_exists(Dataset), dataset_rows)
@@ -154,7 +147,7 @@ def _convert_visit_record_to_visit_row(record: DimensionRecord) -> dict:
     }
 
 
-def _convert_ref_to_dataset_row(ref: DatasetRef, origin: DatasetOrigin, visit_mapper: _VisitMapper) -> dict:
+def _convert_ref_to_dataset_row(ref: DatasetRef, visit_mapper: _VisitMapper) -> dict:
     # Extract any leftover dimension primary keys that aren't already
     # represented as one of the columns in the dataset table.
     butler_data_id = dict(ref.dataId.required)
@@ -163,7 +156,6 @@ def _convert_ref_to_dataset_row(ref: DatasetRef, origin: DatasetOrigin, visit_ma
 
     return {
         "id": ref.id,
-        "origin": origin,
         "dataset_type": ref.datasetType.name,
         "instrument": ref.dataId.get("instrument"),
         "visit": visit_mapper.get_visit_id(ref),

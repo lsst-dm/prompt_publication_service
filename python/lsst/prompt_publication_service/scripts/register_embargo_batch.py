@@ -28,7 +28,6 @@ from lsst.resources import ResourcePath
 
 from ..database import Database
 from ..register import register_dataset_batch_file
-from ..schema import DatasetOrigin
 
 
 @click.command()
@@ -49,7 +48,7 @@ def register_embargo_datasets_from_collections(
 
 async def _register_datasets(butler: Butler, database_uri: str, batch_file: ResourcePath) -> None:
     async with Database(database_uri) as db:
-        await register_dataset_batch_file(db, DatasetOrigin.PROMPT_PROCESSING, butler, batch_file)
+        await register_dataset_batch_file(db, butler, batch_file)
 
 
 if __name__ == "__main__":
