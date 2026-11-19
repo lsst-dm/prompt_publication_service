@@ -71,8 +71,9 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
         # Tier 1
         "difference_kernel": _TIER1_NONPIXEL,
         "prompt_source": _TIER1_NONPIXEL,
+        "visit_detector_table": _TIER1_NONPIXEL,
         "visit_image": _TIER1_PIXEL,
-        "visit_summary": _TIER1_NONPIXEL,
+        "visit_table": _TIER1_NONPIXEL,
         # Tier 2
         "difference_image": _TIER2_PIXEL,
         "single_visit_star_footprints": _TIER2_NONPIXEL,
