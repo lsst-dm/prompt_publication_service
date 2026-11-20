@@ -98,7 +98,7 @@ PROMPT_PROCESSING_OUTPUT_CONFIG = DatasetTypeConfiguration(
         "ss_object_unassociated_detector": _USDF_INTERNAL_NONPIXEL,
         "ss_source_detector": _USDF_INTERNAL_NONPIXEL,
         "visit_geometry": _USDF_INTERNAL_NONPIXEL,
-        "visit_summary_aggregate": _USDF_INTERNAL_NONPIXEL,
+        "visit_summary_aggregate_metrics_table": _USDF_INTERNAL_NONPIXEL,
         # Miscellaneous provenance datasets (config/log/metadata/packages).
         "aggregateVisitSummary_config": _PROVENANCE,
         "aggregateVisitSummary_log": _PROVENANCE,
